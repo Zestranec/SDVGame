@@ -40,13 +40,6 @@ const SAFE_ANIM_TYPES: CardAnimType[] = [
   'pulse', 'scanlines', 'sticker_pop', 'ring', 'sweep',
 ];
 
-/** Emoji pool for procedural safe cards. */
-const SAFE_EMOJIS = [
-  '🌟', '💫', '🎯', '🔥', '✨', '🎪', '🍓', '🦋', '🐸', '🌊',
-  '🌈', '🎭', '🚀', '🎵', '🌮', '🐕', '🌺', '💃', '🧁', '🏄',
-  '🦄', '🌙', '🎲', '🍕', '🎬', '🌵', '🦊', '🐙', '🎸', '🌻',
-];
-
 // ── Controller ────────────────────────────────────────────────────────────────
 
 export class CardStyleController {
@@ -68,7 +61,7 @@ export class CardStyleController {
     const lit2  = 18 + ((h >> 28) & 0x07);   // 18–25
 
     const animType = SAFE_ANIM_TYPES[(h >> 12) % SAFE_ANIM_TYPES.length];
-    const emoji    = SAFE_EMOJIS[(h >> 16) % SAFE_EMOJIS.length];
+    const emoji    = config.icon?.trim() || '🛡️';
 
     const def: CardDef = {
       id:       config.id,
