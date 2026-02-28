@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>SDVGame</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+      html, body {
+        width: 100%; height: 100%;
+        overflow: hidden;
+        background: #000;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        -webkit-user-select: none; user-select: none;
+        touch-action: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      #game-canvas {
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        display: block;
+      }
+
+      #ui-overlay {
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        pointer-events: none;
+        z-index: 10;
+      }
+
+      /* ── Top HUD ─────────────────────────────────────────────────── */
+      #hud-top {
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        padding: 10px 16px;
+        padding-top: max(10px, env(safe-area-inset-top));
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        background: linear-gradient(to bottom, rgba(0,0,0,0.65) 0%, transparent 100%);
+      }
+
+      .hud-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1px;
+        min-width: 70px;
+      }
+
+      .hud-label {
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 1.2px;
+        color: rgba(255,255,255,0.55);
+        font-weight: 600;
+      }
+
+      .hud-value {
+        font-size: 15px;
+        font-weight: 700;
+        color: #fff;
+        text-shadow: 0 1px 6px rgba(0,0,0,0.9);
+        line-height: 1.2;
+      }
+
+      .hud-value.gold { color: #ffd700; }
+      .hud-value.green { color: #00e676; }
+
+      /* Seed input */
+      #seed-wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        pointer-events: all;
+      }
+
+      #seed-input {
+        width: 76px;
+        background: rgba(255,255,255,0.12);
+        border: 1px solid rgba(255,255,255,0.25);
+        border-radius: 8px;
+        color: #fff;
+        font-size: 12px;
+        text-align: center;
+        padding: 3px 6px;
+        outline: none;
+        -webkit-appearance: none;
+        appearance: none;
+      }
+
+      #seed-input:focus { border-color: rgba(255,255,255,0.5); }
+
+      /* ── Bottom bar ───────────────────────────────────────────────── */
+      #hud-bottom {
+        position: absolute;
+        bottom: 0; left: 0; right: 0;
+        padding: 0 20px 16px;
+        padding-bottom: max(16px, env(safe-area-inset-bottom));
+        background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        pointer-events: none;
+      }
+
+      #round-value-display {
+        font-size: 40px;
+        font-weight: 800;
+        color: #fff;
+        text-shadow: 0 0 24px rgba(255,215,0,0.7), 0 2px 10px rgba(0,0,0,0.9);
+        letter-spacing: -0.5px;
+        line-height: 1;
+        display: none;
+      }
+
+      #multiplier-display {
+        font-size: 17px;
+        font-weight: 700;
+        color: #ffd700;
+        text-shadow: 0 0 12px rgba(255,215,0,0.5);
+        display: none;
+      }
+
+      #btn-cashout {
+        pointer-events: all;
+        background: linear-gradient(135deg, #00c853, #00e676);
+        color: #000;
+        border: none;
+        border-radius: 50px;
+        padding: 14px 40px;
+        font-size: 17px;
+        font-weight: 800;
+        letter-spacing: 0.3px;
+        cursor: pointer;
+        box-shadow: 0 4px 24px rgba(0,200,83,0.55);
+        transition: transform 0.1s;
+        display: none;
+        white-space: nowrap;
+      }
+
+      #btn-cashout:active { transform: scale(0.95); }
+
+      #swipe-hint {
+        font-size: 13px;
+        color: rgba(255,255,255,0.65);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        letter-spacing: 0.3px;
+        display: none;
+      }
+
+      #swipe-hint .arrow {
+        animation: bounce-up 1.6s ease-in-out infinite;
+        display: inline-block;
+        font-size: 15px;
+      }
+
+      @keyframes bounce-up {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-6px); }
+      }
+
+      /* ── Right side icons ─────────────────────────────────────────── */
+      #right-icons {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        pointer-events: all;
+      }
+
+      .icon-btn {
+        width: 42px; height: 42px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.15);
+        border: 1px solid rgba(255,255,255,0.2);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        cursor: pointer;
+        transition: background 0.15s;
+        pointer-events: all;
+      }
+
+      .icon-btn:active { background: rgba(255,255,255,0.28); }
+
+      /* ── Flash overlay (bomb effect) ──────────────────────────────── */
+      #flash-overlay {
+        position: absolute;
+        inset: 0;
+        background: #ff0000;
+        opacity: 0;
+        pointer-events: none;
+        z-index: 8;
+        transition: none;
+      }
+
+      /* ── Popup modal ──────────────────────────────────────────────── */
+      #popup {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0,0,0,0.72);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        pointer-events: all;
+        z-index: 20;
+        transition: opacity 0.25s;
+      }
+
+      #popup.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .popup-card {
+        background: rgba(255,255,255,0.1);
+        border: 1px solid rgba(255,255,255,0.18);
+        border-radius: 28px;
+        padding: 36px 36px 28px;
+        text-align: center;
+        max-width: min(340px, 88vw);
+        backdrop-filter: blur(24px);
+        -webkit-backdrop-filter: blur(24px);
+        box-shadow: 0 8px 48px rgba(0,0,0,0.55);
+      }
+
+      #popup-emoji { font-size: 60px; margin-bottom: 14px; line-height: 1; }
+      #popup-title { font-size: 26px; font-weight: 800; color: #fff; margin-bottom: 8px; }
+      #popup-subtitle { font-size: 14px; color: rgba(255,255,255,0.68); margin-bottom: 20px; line-height: 1.55; }
+      #popup-amount {
+        font-size: 38px; font-weight: 800;
+        margin-bottom: 20px;
+        display: none;
+      }
+      #popup-amount.win { color: #ffd700; text-shadow: 0 0 16px rgba(255,215,0,0.6); }
+      #popup-amount.lose { color: #ff5555; }
+
+      .popup-btn {
+        width: 100%;
+        padding: 15px;
+        border-radius: 50px;
+        border: none;
+        font-size: 17px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 0.1s;
+        letter-spacing: 0.2px;
+      }
+
+      .popup-btn:active { transform: scale(0.97); }
+
+      .popup-btn.primary {
+        background: linear-gradient(135deg, #4d7aff, #2d55d4);
+        color: #fff;
+        box-shadow: 0 4px 20px rgba(77,122,255,0.45);
+      }
+
+      .popup-btn.success {
+        background: linear-gradient(135deg, #00c853, #00e676);
+        color: #000;
+        box-shadow: 0 4px 20px rgba(0,200,83,0.45);
+      }
+
+      .popup-btn.danger {
+        background: linear-gradient(135deg, #ff4444, #cc1100);
+        color: #fff;
+        box-shadow: 0 4px 20px rgba(255,68,68,0.45);
+      }
+
+      /* ── Glitch overlay (bomb effect) ────────────────────────────── */
+      #glitch-overlay {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 9;
+        display: none;
+        overflow: hidden;
+      }
+
+      .glitch-line {
+        position: absolute;
+        left: 0; right: 0;
+        height: 3px;
+        background: rgba(255,0,0,0.7);
+        mix-blend-mode: screen;
+      }
+    </style>
+    <script type="module" crossorigin src="./assets/index-Ds58vk-0.js"></script>
+  </head>
+  <body>
+    <canvas id="game-canvas"></canvas>
+
+    <div id="ui-overlay">
+      <!-- Top HUD -->
+      <div id="hud-top">
+        <div class="hud-item">
+          <span class="hud-label">Balance</span>
+          <span class="hud-value gold" id="balance-display">1000</span>
+        </div>
+
+        <div id="seed-wrap">
+          <span class="hud-label">Seed</span>
+          <input id="seed-input" type="number" value="42" min="0" max="999999" />
+        </div>
+
+        <div class="hud-item">
+          <span class="hud-label">Round</span>
+          <span class="hud-value green" id="round-val-hud">—</span>
+        </div>
+      </div>
+
+      <!-- Bottom bar -->
+      <div id="hud-bottom">
+        <div id="round-value-display">10.00</div>
+        <div id="multiplier-display">×1.00</div>
+        <button id="btn-cashout">💰 Take Profit (+10.00)</button>
+        <div id="swipe-hint">
+          <span class="arrow">↑</span>
+          <span id="swipe-hint-text">Swipe up to continue</span>
+        </div>
+      </div>
+
+      <!-- Right side icons -->
+      <div id="right-icons">
+        <div class="icon-btn" id="btn-sound" title="Sound">🔊</div>
+        <div class="icon-btn" id="btn-help" title="Help">❓</div>
+      </div>
+
+      <!-- Flash + glitch overlays (bomb effects) -->
+      <div id="flash-overlay"></div>
+      <div id="glitch-overlay"></div>
+
+      <!-- Popup modal -->
+      <div id="popup">
+        <div class="popup-card">
+          <div id="popup-emoji">🎰</div>
+          <div id="popup-title">SDVGame</div>
+          <div id="popup-subtitle">
+            Swipe up through viral content.<br>
+            Cash out before the bomb drops!
+          </div>
+          <div id="popup-amount"></div>
+          <button class="popup-btn primary" id="popup-btn">▶ Let's Play</button>
+        </div>
+      </div>
+    </div>
+
+  </body>
+</html>
