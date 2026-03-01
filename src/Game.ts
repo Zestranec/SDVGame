@@ -7,7 +7,7 @@ import { Ui } from './Ui';
 import { INTRO_CARD } from './Card';
 import { LoadingScene, LOADING_MIN_MS } from './LoadingScene';
 
-export type GameState = 'loading' | 'idle' | 'intro' | 'running' | 'transitioning' | 'win' | 'lose';
+export type GameState = 'loading' | 'intro' | 'running' | 'transitioning' | 'win' | 'lose';
 
 /**
  * Pointer / wheel swipe input handler.
@@ -92,7 +92,7 @@ export class Game {
     this.ui.clearRoundHud();
     this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
 
-    // Show loading screen; transition to idle when done
+    // Show loading screen; go directly to gameplay when done
     this.setState('loading');
     void this.boot();
   }
@@ -121,10 +121,7 @@ export class Game {
     await delay(120); // brief hold at 100 % before transition
 
     scene.destroy();
-
-    // Normal game start
-    this.ui.showPopupIntro();
-    this.setState('idle');
+    this.setState('intro');
   }
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -134,10 +131,6 @@ export class Game {
 
     switch (next) {
       case 'loading':
-        this.swipe.setLocked(true);
-        break;
-
-      case 'idle':
         this.swipe.setLocked(true);
         break;
 

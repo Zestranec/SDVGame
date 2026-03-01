@@ -60,16 +60,6 @@ export class Ui {
 
   // ── Popup ────────────────────────────────────────────────────────────────
 
-  showPopupIntro(): void {
-    this.popupEmoji.textContent    = '🎰';
-    this.popupTitle.textContent    = 'SDVGame';
-    this.popupSubtitle.textContent = 'Swipe up through viral content.\nCash out before it blows up!';
-    this.popupAmount.style.display = 'none';
-    this.popupBtn.textContent      = '▶ Let\'s Play';
-    this.popupBtn.className        = 'popup-btn primary';
-    this._showPopup();
-  }
-
   showPopupWin(cashoutAmount: number, balance: number): void {
     this.popupEmoji.textContent    = '💰';
     this.popupTitle.textContent    = 'Cashed Out!';
