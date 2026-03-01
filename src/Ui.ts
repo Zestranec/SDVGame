@@ -72,6 +72,18 @@ export class Ui {
     this._showPopup();
   }
 
+  showPopupMaxWin(cashoutAmount: number, balance: number): void {
+    this.popupTitle.textContent    = 'MAX WIN!';
+    this.popupAmount.textContent   = `+${cashoutAmount.toFixed(2)} FUN`;
+    this.popupAmount.className     = 'win';
+    this.popupAmount.style.display = 'block';
+    this.popupSubtitle.textContent = 'You hit the ×500 cap. Collect your winnings!';
+    this.popupBalance.textContent  = `Balance: ${balance.toFixed(2)} FUN`;
+    this.popupBtn.textContent      = 'COLLECT MAX WIN';
+    this.popupBtn.className        = 'popup-btn success';
+    this._showPopup();
+  }
+
   showPopupLose(balance: number, bet = 10): void {
     this.popupTitle.textContent    = 'BUSTED';
     this.popupAmount.textContent   = `-${bet.toFixed(2)} FUN`;

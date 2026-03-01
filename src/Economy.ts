@@ -107,6 +107,11 @@ export class Economy {
     return start > 0 ? +(this.roundValue / start).toFixed(4) : 1;
   }
 
+  /** True when the round value has been clamped to the ×500 cap. */
+  get isMaxWin(): boolean {
+    return this.roundValue >= this.bet * MAX_MULT - 0.001;
+  }
+
   get roundValueStr(): string { return this.roundValue.toFixed(2); }
   get balanceStr():    string { return this.balance.toFixed(2); }
 }

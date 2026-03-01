@@ -214,7 +214,11 @@ export class Game {
     } else {
       // Safe or viral_boost — apply multiplier (viral_boost uses its own override)
       this.economy.onSafeCard(firstCard.multiplierOverride);
-      this.setState('running');
+      if (this.economy.isMaxWin) {
+        this.triggerMaxWin();
+      } else {
+        this.setState('running');
+      }
     }
   }
 
@@ -232,7 +236,11 @@ export class Game {
     } else {
       // Safe or viral_boost — pass the override multiplier if present
       this.economy.onSafeCard(card.multiplierOverride);
-      this.setState('running');
+      if (this.economy.isMaxWin) {
+        this.triggerMaxWin();
+      } else {
+        this.setState('running');
+      }
     }
   }
 
@@ -251,6 +259,22 @@ export class Game {
 
     setTimeout(() => {
       this.ui.showPopupWin(gross, this.economy.balance);
+    }, 650);
+  }
+
+  // ── Max win (forced cashout at ×500 cap) ───────────────────────────────────
+
+  private triggerMaxWin(): void {
+    const gross = this.economy.cashout();
+    this.setState('win'); // locks swipe input immediately
+
+    this.renderer.celebrateCashout();
+    this.ui.setBalance(this.economy.balance);
+    this.ui.clearRoundHud();
+    this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
+
+    setTimeout(() => {
+      this.ui.showPopupMaxWin(gross, this.economy.balance);
     }, 650);
   }
 
