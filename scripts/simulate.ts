@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * CLI simulation for SDVGame.
+ * CLI simulation for ADHDoom.
  *
  * Usage:
  *   npm run simulate          # 1M rounds, all depth profiles
@@ -11,7 +11,7 @@ import { runSimulation } from '../src/Simulation';
 const rounds = parseInt(process.argv[2] ?? '1000000', 10);
 const seed   = parseInt(process.argv[3] ?? '42', 10);
 
-console.log(`\n🎰  SDVGame Simulation  (unknown_call danger model)`);
+console.log(`\n🎰  ADHDoom Simulation  (unknown_call danger model)`);
 console.log(`   Rounds : ${rounds.toLocaleString()}`);
 console.log(`   Seed   : ${seed}`);
 console.log(`   Theory : P(bomb)=15%  P(viral_boost)≈1.67%  E[mult|safe]=1.1176`);

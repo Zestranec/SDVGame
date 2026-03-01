@@ -235,7 +235,26 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
   botGrad.y = h - h * 0.52;
   container.addChild(botGrad);
 
-  // 3. Caption panel (left-aligned, TikTok style) ──────────────────────────────
+  // 3. Game title ("ADHDoom") — top-center, sits below the HTML HUD ─────────────
+  const gameTitleFS = Math.round(Math.min(w * 0.10, 44));
+  const gameTitle = new PIXI.Text('ADHDoom', new PIXI.TextStyle({
+    fontFamily:         TEXT_FONT,
+    fontWeight:         '900',
+    fontSize:           gameTitleFS,
+    fill:               0xffffff,
+    align:              'center',
+    letterSpacing:      1,
+    dropShadow:         true,
+    dropShadowColor:    0x000000,
+    dropShadowBlur:     18,
+    dropShadowDistance: 0,
+  }));
+  gameTitle.anchor.set(0.5);
+  gameTitle.x = w / 2;
+  gameTitle.y = 90; // fixed: clears HTML HUD (≈60px) + notch safe area
+  container.addChild(gameTitle);
+
+  // 4. Caption panel (left-aligned, TikTok style) ──────────────────────────────
   const padX   = Math.round(w * 0.05);
   const panelW = Math.min(520, Math.round(w * 0.86));
   const PAD    = 20; // inner padding (px)
@@ -427,6 +446,7 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
     drawGradBands(topGrad, nw, nh * 0.38, 0.55, 0);
     drawGradBands(botGrad, nw, nh * 0.52, 0, 0.78);
     botGrad.y = nh - nh * 0.52;
+    gameTitle.x = nw / 2;
     ctaLabel.x = nw / 2;
     ctaLabel.y = betOpts ? nh - 92 : nh - 36;
     chev1.x = nw / 2;
