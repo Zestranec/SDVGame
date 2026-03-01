@@ -5,8 +5,9 @@ import { ReelEngine } from './ReelEngine';
 import { Renderer } from './Renderer';
 import { Ui } from './Ui';
 import { INTRO_CARD } from './Card';
+import { LoadingScene, LOADING_MIN_MS } from './LoadingScene';
 
-export type GameState = 'idle' | 'intro' | 'running' | 'transitioning' | 'win' | 'lose';
+export type GameState = 'loading' | 'idle' | 'intro' | 'running' | 'transitioning' | 'win' | 'lose';
 
 /**
  * Pointer / wheel swipe input handler.
@@ -60,7 +61,7 @@ class SwipeInput {
 // ── Game ─────────────────────────────────────────────────────────────────────
 
 export class Game {
-  private state: GameState = 'idle';
+  private state: GameState = 'loading';
   private rng!: Rng;
   private economy: Economy;
   private outCtrl!: OutcomeController;
@@ -85,11 +86,43 @@ export class Game {
 
     this.swipe = new SwipeInput(document.body, () => this.handleSwipeUp());
 
-    // Initial state
+    // Seed + initial HUD state (balance visible but bottom bar hidden during loading)
     this.resetRng();
     this.ui.setBalance(this.economy.balance);
     this.ui.clearRoundHud();
     this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
+
+    // Show loading screen; transition to idle when done
+    this.setState('loading');
+    void this.boot();
+  }
+
+  // ── Boot (loading screen) ─────────────────────────────────────────────────
+
+  private async boot(): Promise<void> {
+    const startTime = performance.now();
+    const scene     = new LoadingScene(this.renderer.app);
+
+    // Simulate progress 0 → 90 % over ~1 000 ms while assets load in parallel
+    const SIM_MS  = 1000;
+    const ticker  = setInterval(() => {
+      const t = Math.min((performance.now() - startTime) / SIM_MS, 1);
+      scene.setProgress(t * 0.9);
+    }, 16);
+
+    // Load logo + enforce minimum display time (whichever takes longer)
+    await Promise.all([
+      scene.loadAssets(),
+      delay(LOADING_MIN_MS),
+    ]);
+
+    clearInterval(ticker);
+    scene.setProgress(1.0);
+    await delay(120); // brief hold at 100 % before transition
+
+    scene.destroy();
+
+    // Normal game start
     this.ui.showPopupIntro();
     this.setState('idle');
   }
@@ -100,6 +133,10 @@ export class Game {
     this.state = next;
 
     switch (next) {
+      case 'loading':
+        this.swipe.setLocked(true);
+        break;
+
       case 'idle':
         this.swipe.setLocked(true);
         break;
