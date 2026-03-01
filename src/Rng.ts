@@ -39,5 +39,7 @@ export class Rng {
 
 /** Generate a random seed based on current time + Math.random(). */
 export function makeSeed(): number {
-  return ((Date.now() * 31337) ^ (Math.random() * 0xffffffff)) >>> 0;
+  const a = (Math.random() * 0xffffffff) >>> 0;
+  const b = (Math.random() * 0xffffffff) >>> 0;
+  return (a ^ b ^ (Date.now() >>> 0)) >>> 0 || 1;
 }
