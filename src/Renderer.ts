@@ -35,6 +35,54 @@ interface CardObjects {
   animLayer: PIXI.Container;
   /** Present on video cards — drives canvas texture updates and cleanup. */
   vcTex?: VideoCanvasTexture;
+  /** Pre-built animation fn (e.g. intro card). When set, bypasses setupAnim. */
+  animFn?: AnimFn;
+  /** Called by destroyCard to remove event listeners / free non-PIXI resources. */
+  cleanup?: () => void;
+}
+
+// ── Intro-card helpers ────────────────────────────────────────────────────────
+
+/** Scale a sprite to cover the viewport (center-crop, no distortion). */
+function applyCover(sprite: PIXI.Sprite, vw: number, vh: number): void {
+  const tw = sprite.texture.width;
+  const th = sprite.texture.height;
+  if (tw === 0 || th === 0) { sprite.width = vw; sprite.height = vh; return; }
+  const scale  = Math.max(vw / tw, vh / th);
+  sprite.width  = tw * scale;
+  sprite.height = th * scale;
+}
+
+/**
+ * (Re)draws a smooth gradient using banded PIXI.Graphics rectangles.
+ * Call with the same Graphics object and new dimensions to handle resize.
+ */
+function drawGradBands(
+  g: PIXI.Graphics,
+  w: number, h: number,
+  fromAlpha: number, toAlpha: number,
+  steps = 22,
+): void {
+  g.clear();
+  for (let i = 0; i < steps; i++) {
+    const t  = i / (steps - 1);
+    const st = t * t * (3 - 2 * t); // smoothstep
+    const a  = fromAlpha + (toAlpha - fromAlpha) * st;
+    if (a < 0.004) continue;
+    g.beginFill(0x000000, a);
+    g.drawRect(0, (i / steps) * h, w, h / steps + 0.5);
+    g.endFill();
+  }
+}
+
+/** A "^" chevron drawn with PIXI.Graphics, centered at (0, 0). */
+function makeChevronGraphic(size: number): PIXI.Graphics {
+  const g = new PIXI.Graphics();
+  g.lineStyle(2.5, 0xffffff, 0.9);
+  g.moveTo(-size,  size * 0.5);
+  g.lineTo(0,     -size * 0.5);
+  g.lineTo( size,  size * 0.5);
+  return g;
 }
 
 function makeGradientTexture(w: number, h: number, colors: [string, string]): PIXI.Texture {
@@ -148,6 +196,176 @@ function buildTextCard(w: number, h: number, def: CardDef): CardObjects {
   container.addChild(animLayer);
 
   return { container, bg, emoji, headline, subline, animLayer };
+}
+
+// ── Intro card (full-bleed Reels/TikTok style) ────────────────────────────────
+
+function buildIntroCard(w: number, h: number, def: CardDef): CardObjects {
+  const container = new PIXI.Container();
+
+  // 1. Full-bleed background (cover-crop) ──────────────────────────────────────
+  const imgUrl = new URL(
+    `${import.meta.env.BASE_URL}${def.imagePath!}`,
+    window.location.href,
+  ).toString();
+  const bg = new PIXI.Sprite(PIXI.Texture.from(imgUrl));
+  bg.anchor.set(0.5);
+  bg.x = w / 2;
+  bg.y = h / 2;
+  applyCover(bg, w, h);
+  container.addChild(bg);
+
+  // 2. Gradient overlays ────────────────────────────────────────────────────────
+  // Top: opaque-at-top → transparent (HUD readability)
+  const topGrad = new PIXI.Graphics();
+  drawGradBands(topGrad, w, h * 0.38, 0.55, 0);
+  container.addChild(topGrad);
+
+  // Bottom: transparent → opaque-at-bottom (caption + CTA readability)
+  const botGrad = new PIXI.Graphics();
+  drawGradBands(botGrad, w, h * 0.52, 0, 0.78);
+  botGrad.y = h - h * 0.52;
+  container.addChild(botGrad);
+
+  // 3. Caption panel (left-aligned, TikTok style) ──────────────────────────────
+  const padX   = Math.round(w * 0.05);
+  const panelW = Math.min(520, Math.round(w * 0.86));
+  const PAD    = 20; // inner padding (px)
+
+  // Title row: bold, larger
+  const titleFS = Math.round(Math.min(w * 0.066, 26));
+  const titleText = new PIXI.Text(def.headline, new PIXI.TextStyle({
+    fontFamily:         TEXT_FONT,
+    fontWeight:         '800',
+    fontSize:           titleFS,
+    fill:               0xffffff,
+    align:              'left',
+    letterSpacing:      0.5,
+    dropShadow:         true,
+    dropShadowColor:    0x000000,
+    dropShadowBlur:     6,
+    dropShadowDistance: 1,
+  }));
+  titleText.x = PAD;
+  titleText.y = PAD;
+
+  // Body rows: regular weight, word-wrapped, left-aligned
+  const bodyFS = Math.round(Math.min(w * 0.058, 22));
+  const bodyText = new PIXI.Text(def.subline, new PIXI.TextStyle({
+    fontFamily:         TEXT_FONT,
+    fontSize:           bodyFS,
+    fill:               0xffffff,
+    align:              'left',
+    wordWrap:           true,
+    wordWrapWidth:      panelW - PAD * 2,
+    leading:            Math.round(bodyFS * 0.24),
+    dropShadow:         true,
+    dropShadowColor:    0x000000,
+    dropShadowBlur:     4,
+    dropShadowDistance: 0,
+  }));
+  bodyText.x = PAD;
+  bodyText.y = titleText.y + Math.ceil(titleText.height) + 8;
+
+  const panelH = Math.ceil(bodyText.y + bodyText.height) + PAD;
+  const panelG = new PIXI.Graphics();
+  panelG.beginFill(0x000000, 0.42);
+  panelG.drawRoundedRect(0, 0, panelW, panelH, 20);
+  panelG.endFill();
+
+  const captionCont = new PIXI.Container();
+  captionCont.addChild(panelG, titleText, bodyText);
+  const ctaAreaH = 110;
+  captionCont.x = padX;
+  captionCont.y = h - ctaAreaH - panelH - 16;
+  container.addChild(captionCont);
+
+  // 4. Swipe CTA ────────────────────────────────────────────────────────────────
+  const ctaLayer = new PIXI.Container();
+  container.addChild(ctaLayer);
+
+  const ctaLabel = new PIXI.Text('SWIPE UP TO START', new PIXI.TextStyle({
+    fontFamily:         TEXT_FONT,
+    fontWeight:         '700',
+    fontSize:           Math.round(Math.min(w * 0.038, 14)),
+    fill:               0xffffff,
+    align:              'center',
+    letterSpacing:      2.5,
+    dropShadow:         true,
+    dropShadowBlur:     10,
+    dropShadowColor:    0x000000,
+    dropShadowDistance: 0,
+  }));
+  ctaLabel.anchor.set(0.5);
+  ctaLabel.x = w / 2;
+  ctaLabel.y = h - 36;
+  ctaLayer.addChild(ctaLabel);
+
+  // Two staggered chevrons that float upward and fade in a loop
+  const CHEV_SZ = 11;
+  const chev1 = makeChevronGraphic(CHEV_SZ);
+  chev1.x = w / 2;
+  chev1.y = h - 64;
+  ctaLayer.addChild(chev1);
+
+  const chev2 = makeChevronGraphic(CHEV_SZ);
+  chev2.x = w / 2;
+  chev2.y = h - 86;
+  ctaLayer.addChild(chev2);
+
+  // 5. Required CardObjects stubs ───────────────────────────────────────────────
+  const animLayer = new PIXI.Container();
+  container.addChild(animLayer);
+
+  const dummy = new PIXI.Text('', { fontSize: 1 });
+  dummy.visible = false;
+  container.addChild(dummy);
+
+  // 6. Resize listener ──────────────────────────────────────────────────────────
+  let chev1BaseY = h - 64;
+  let chev2BaseY = h - 86;
+  const onResize = () => {
+    const nw = window.innerWidth;
+    const nh = window.innerHeight;
+    bg.x = nw / 2;
+    bg.y = nh / 2;
+    applyCover(bg, nw, nh);
+    drawGradBands(topGrad, nw, nh * 0.38, 0.55, 0);
+    drawGradBands(botGrad, nw, nh * 0.52, 0, 0.78);
+    botGrad.y = nh - nh * 0.52;
+    ctaLabel.x = nw / 2;
+    ctaLabel.y = nh - 36;
+    chev1.x = nw / 2;
+    chev2.x = nw / 2;
+    chev1BaseY = nh - 64;
+    chev2BaseY = nh - 86;
+    captionCont.x = Math.round(nw * 0.05);
+    captionCont.y = nh - ctaAreaH - panelH - 16;
+  };
+  window.addEventListener('resize', onResize);
+
+  // 7. Custom animation: chevrons float up/fade (staggered), label pulses ───────
+  let animT = 0;
+  const PERIOD = 1.6; // seconds per chevron cycle
+  const animFn: AnimFn = (dt) => {
+    animT += dt * 0.016;
+    const p1 = (animT / PERIOD) % 1;
+    chev1.y     = chev1BaseY - p1 * 24;
+    chev1.alpha = p1 < 0.5 ? p1 * 2 : (1 - p1) * 2;
+
+    const p2 = ((animT / PERIOD) + 0.5) % 1;
+    chev2.y     = chev2BaseY - p2 * 24;
+    chev2.alpha = p2 < 0.5 ? p2 * 2 : (1 - p2) * 2;
+
+    ctaLabel.alpha = 0.65 + Math.sin(animT * 2.2) * 0.35;
+  };
+
+  return {
+    container, bg,
+    emoji: dummy, headline: dummy, subline: dummy, animLayer,
+    animFn,
+    cleanup: () => window.removeEventListener('resize', onResize),
+  };
 }
 
 // ── VideoCanvasTexture ─────────────────────────────────────────────────────────
@@ -299,12 +517,14 @@ function buildVideoCard(w: number, h: number, def: CardDef): CardObjects {
 // ── Dispatcher: text or video based on def.videoUrl ───────────────────────────
 
 function buildCard(w: number, h: number, def: CardDef): CardObjects {
+  if (def.type === 'intro') return buildIntroCard(w, h, def);
   return def.videoUrl ? buildVideoCard(w, h, def) : buildTextCard(w, h, def);
 }
 
 // ── Cleanup helper (pauses video before PIXI destroy) ─────────────────────────
 
 function destroyCard(objs: CardObjects): void {
+  objs.cleanup?.();
   objs.vcTex?.destroy();
   objs.container.destroy({ children: true });
 }
@@ -794,7 +1014,7 @@ export class Renderer {
     const objs = buildCard(this.width, this.height, def);
     this.cardLayer.addChild(objs.container);
     this.currentObjs = objs;
-    this.currentAnimFn = setupAnim(def.animType, objs, this.width, this.height);
+    this.currentAnimFn = objs.animFn ?? setupAnim(def.animType, objs, this.width, this.height);
     this.registerCard(objs);
   }
 
@@ -829,7 +1049,7 @@ export class Renderer {
           this.app.ticker.remove(tick);
           if (outgoing) this.unregisterAndDestroy(outgoing);
           this.currentObjs = incoming;
-          this.currentAnimFn = setupAnim(def.animType, incoming, w, h);
+          this.currentAnimFn = incoming.animFn ?? setupAnim(def.animType, incoming, w, h);
           this.isTransitioning = false;
           resolve();
         }
