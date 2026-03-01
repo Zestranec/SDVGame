@@ -31,8 +31,8 @@ interface CardObjects {
   headline: PIXI.Text;
   subline: PIXI.Text;
   animLayer: PIXI.Container;
-  /** Present on video cards — paused and src-cleared on destroy. */
-  video?: HTMLVideoElement;
+  /** Present on video cards — drives canvas texture updates and cleanup. */
+  vcTex?: VideoCanvasTexture;
 }
 
 function makeGradientTexture(w: number, h: number, colors: [string, string]): PIXI.Texture {
@@ -128,12 +128,108 @@ function buildTextCard(w: number, h: number, def: CardDef): CardObjects {
   return { container, bg, emoji, headline, subline, animLayer };
 }
 
-// ── Video card (full-screen looping video, cover-mode scaled) ──────────────────
+// ── VideoCanvasTexture ─────────────────────────────────────────────────────────
+// Renders an <video> frame-by-frame into an offscreen <canvas>, then exposes a
+// PIXI.Texture backed by that canvas.  Zero PIXI VideoResource involvement —
+// no canplay/play event loops possible.
+
+class VideoCanvasTexture {
+  readonly video:   HTMLVideoElement;
+  readonly texture: PIXI.Texture;
+  readonly sprite:  PIXI.Sprite;
+  private readonly canvas: HTMLCanvasElement;
+  private readonly ctx:    CanvasRenderingContext2D;
+  private _destroyed     = false;
+  private _playAttempted = false;
+
+  constructor(url: string, cardW: number, cardH: number) {
+    // Offscreen canvas sized to match the card's aspect ratio at ~360p.
+    const cw = 360;
+    const ch = Math.round(cw * (cardH / cardW));
+    this.canvas = document.createElement('canvas');
+    this.canvas.width  = cw;
+    this.canvas.height = ch;
+    this.ctx = this.canvas.getContext('2d')!;
+    this.ctx.fillStyle = '#000';
+    this.ctx.fillRect(0, 0, cw, ch); // black until first frame
+
+    // PIXI texture backed by the canvas — no VideoResource involved
+    this.texture = PIXI.Texture.from(this.canvas);
+
+    // Sprite fills the full card without distortion (canvas already matches AR)
+    this.sprite        = new PIXI.Sprite(this.texture);
+    this.sprite.width  = cardW;
+    this.sprite.height = cardH;
+    this.sprite.anchor.set(0.5);
+    this.sprite.x = cardW / 2;
+    this.sprite.y = cardH / 2;
+
+    // Video element — never added to DOM
+    this.video = document.createElement('video');
+    this.video.crossOrigin = 'anonymous'; // required for canvas drawImage from CDN
+    this.video.muted       = true;
+    this.video.loop        = true;
+    this.video.playsInline = true;
+    this.video.setAttribute('playsinline', '');
+    this.video.preload     = 'auto';
+    this.video.src         = url;
+    this.video.load();
+  }
+
+  /**
+   * Attempt autoplay (once). Returns a Promise that rejects if blocked,
+   * so callers can show a tap-to-play affordance.
+   */
+  tryPlay(): Promise<void> {
+    if (this._playAttempted || this._destroyed) return Promise.resolve();
+    this._playAttempted = true;
+    return this.video.play();
+  }
+
+  /**
+   * Draw the current video frame into the canvas and mark the texture dirty.
+   * Must be called every render frame from the PIXI ticker — this is the ONLY
+   * place that calls texture.baseTexture.update(), so no event re-entrancy.
+   */
+  tick(): void {
+    if (this._destroyed) return;
+    const v = this.video;
+    if (v.readyState < 2 || v.paused || v.ended) return;
+    try {
+      const vw = v.videoWidth  || this.canvas.width;
+      const vh = v.videoHeight || this.canvas.height;
+      const cw = this.canvas.width;
+      const ch = this.canvas.height;
+      // Cover-crop: center-crop video into canvas
+      const scale = Math.max(cw / vw, ch / vh);
+      const sw = cw / scale;
+      const sh = ch / scale;
+      const sx = (vw - sw) / 2;
+      const sy = (vh - sh) / 2;
+      this.ctx.drawImage(v, sx, sy, sw, sh, 0, 0, cw, ch);
+      this.texture.baseTexture.update();
+    } catch {
+      // CORS taint or decode error — silently skip frame
+    }
+  }
+
+  /** Stop video and free PIXI + canvas resources. */
+  destroy(): void {
+    if (this._destroyed) return;
+    this._destroyed = true;
+    this.video.pause();
+    this.video.removeAttribute('src');
+    this.video.load(); // abort pending network
+    if (!this.texture.destroyed) this.texture.destroy(true); // also destroys baseTexture
+  }
+}
+
+// ── Video card (full-screen looping video via canvas texture) ──────────────────
 
 function buildVideoCard(w: number, h: number, def: CardDef): CardObjects {
   const container = new PIXI.Container();
 
-  // Clip mask – prevents sprite overflow during slide transition
+  // Clip mask — prevents sprite overflow during slide transition
   const clipMask = new PIXI.Graphics();
   clipMask.beginFill(0xffffff);
   clipMask.drawRect(0, 0, w, h);
@@ -141,72 +237,41 @@ function buildVideoCard(w: number, h: number, def: CardDef): CardObjects {
   container.addChild(clipMask);
   container.mask = clipMask;
 
-  // Video element
-  const video           = document.createElement('video');
-  video.src             = def.videoUrl!;
-  video.muted           = true;
-  video.loop            = true;
-  video.playsInline     = true;
-  video.setAttribute('playsinline', ''); // iOS Safari
-  video.autoplay        = true;
+  // Canvas-backed video texture (no PIXI VideoResource)
+  const vcTex = new VideoCanvasTexture(def.videoUrl!, w, h);
+  container.addChild(vcTex.sprite);
 
-  // PIXI sprite backed by the video element (updates each frame automatically)
-  const texture = PIXI.Texture.from(video as HTMLVideoElement);
-  const sprite  = new PIXI.Sprite(texture);
-  sprite.anchor.set(0.5);
-  sprite.x = w / 2;
-  sprite.y = h / 2;
-
-  // Cover-mode scale: assume portrait until actual dimensions arrive
-  const applyScale = () => {
-    const vw    = video.videoWidth  || 1080;
-    const vh    = video.videoHeight || 1920;
-    const scale = Math.max(w / vw, h / vh);
-    sprite.scale.set(scale);
-  };
-  applyScale();
-  video.addEventListener('loadedmetadata', applyScale, { once: true });
-
-  container.addChild(sprite);
-
-  // Autoplay – fall back to a tap-to-play hint on autoplay block
-  const playPromise = video.play();
-  if (playPromise !== undefined) {
-    playPromise.catch(() => {
-      const tap = new PIXI.Text('▶  Tap to play', new PIXI.TextStyle({
-        fontFamily: TEXT_FONT,
-        fontSize:   18,
-        fontWeight: '700',
-        fill:       0xffffff,
-        dropShadow: true,
-        dropShadowBlur:     10,
-        dropShadowColor:    0x000000,
-        dropShadowDistance: 0,
-      }));
-      tap.anchor.set(0.5);
-      tap.x = w / 2;
-      tap.y = h / 2;
-      container.addChild(tap);
-      document.addEventListener('pointerdown', () => {
-        video.play().catch(() => {});
-        if (!tap.destroyed) tap.destroy();
-      }, { once: true });
-    });
-  }
+  // Attempt autoplay; show tap hint if blocked
+  vcTex.tryPlay().catch(() => {
+    if (container.destroyed) return;
+    const tap = new PIXI.Text('▶  Tap to play', new PIXI.TextStyle({
+      fontFamily: TEXT_FONT, fontSize: 18, fontWeight: '700',
+      fill: 0xffffff, dropShadow: true, dropShadowBlur: 10,
+      dropShadowColor: 0x000000, dropShadowDistance: 0,
+    }));
+    tap.anchor.set(0.5);
+    tap.x = w / 2;
+    tap.y = h / 2;
+    container.addChild(tap);
+    document.addEventListener('pointerdown', () => {
+      vcTex.video.play().catch(() => {});
+      if (!tap.destroyed) tap.destroy();
+    }, { once: true });
+  });
 
   // Animation overlay layer (rings/stars/badges for bomb & viral_boost)
   const animLayer = new PIXI.Container();
   container.addChild(animLayer);
 
-  // Invisible dummy Text objects satisfy the CardObjects interface and give
-  // animation functions (unknown_call, viral_boost_anim) a valid anchor point.
+  // Invisible dummy Text satisfies CardObjects interface and gives animation
+  // functions (unknown_call, viral_boost_anim) a valid position anchor.
   const dummy = new PIXI.Text('', { fontSize: 1 });
   dummy.visible = false;
   dummy.x = w / 2;
-  dummy.y = h * 0.35; // matches where a real emoji would sit
+  dummy.y = h * 0.35;
   container.addChild(dummy);
 
-  return { container, bg: sprite, emoji: dummy, headline: dummy, subline: dummy, animLayer, video };
+  return { container, bg: vcTex.sprite, emoji: dummy, headline: dummy, subline: dummy, animLayer, vcTex };
 }
 
 // ── Dispatcher: text or video based on def.videoUrl ───────────────────────────
@@ -218,11 +283,7 @@ function buildCard(w: number, h: number, def: CardDef): CardObjects {
 // ── Cleanup helper (pauses video before PIXI destroy) ─────────────────────────
 
 function destroyCard(objs: CardObjects): void {
-  if (objs.video) {
-    objs.video.pause();
-    objs.video.removeAttribute('src');
-    objs.video.load(); // abort any pending network request
-  }
+  objs.vcTex?.destroy();
   objs.container.destroy({ children: true });
 }
 
@@ -729,6 +790,8 @@ export class Renderer {
   private currentObjs: CardObjects | null = null;
   private currentAnimFn: AnimFn | null = null;
   private isTransitioning = false;
+  /** All live VideoCanvasTexture instances — ticked every frame. */
+  private readonly activeVcTextures = new Set<VideoCanvasTexture>();
 
   constructor(canvas: HTMLCanvasElement) {
     this.app = new PIXI.Application({
@@ -747,11 +810,24 @@ export class Renderer {
 
     this.app.ticker.add((dt) => {
       if (this.currentAnimFn) this.currentAnimFn(dt);
+      // Pump all live video canvas textures (the ONLY place update() is called)
+      for (const vct of this.activeVcTextures) vct.tick();
     });
   }
 
   get width(): number { return this.app.screen.width; }
   get height(): number { return this.app.screen.height; }
+
+  /** Register a card's vcTex into the active set so the ticker drives it. */
+  private registerCard(objs: CardObjects): void {
+    if (objs.vcTex) this.activeVcTextures.add(objs.vcTex);
+  }
+
+  /** Remove from active set and destroy. */
+  private unregisterAndDestroy(objs: CardObjects): void {
+    if (objs.vcTex) this.activeVcTextures.delete(objs.vcTex);
+    destroyCard(objs);
+  }
 
   /** Instantly replace the current card (no transition). */
   showCard(def: CardDef): void {
@@ -760,6 +836,7 @@ export class Renderer {
     this.cardLayer.addChild(objs.container);
     this.currentObjs = objs;
     this.currentAnimFn = setupAnim(def.animType, objs, this.width, this.height);
+    this.registerCard(objs);
   }
 
   /** Slide current card up, slide new card in from bottom. Returns Promise. */
@@ -772,6 +849,7 @@ export class Renderer {
     this.currentAnimFn = null; // pause idle anim during transition
 
     const incoming = buildCard(w, h, def);
+    this.registerCard(incoming); // start ticking the new card immediately
     incoming.container.y = h;
     incoming.container.scale.set(1.03);
     this.cardLayer.addChild(incoming.container);
@@ -790,9 +868,7 @@ export class Renderer {
 
         if (t >= DURATION) {
           this.app.ticker.remove(tick);
-          if (outgoing) {
-            destroyCard(outgoing);
-          }
+          if (outgoing) this.unregisterAndDestroy(outgoing);
           this.currentObjs = incoming;
           this.currentAnimFn = setupAnim(def.animType, incoming, w, h);
           this.isTransitioning = false;
@@ -891,7 +967,7 @@ export class Renderer {
   private clearCard(): void {
     this.currentAnimFn = null;
     if (this.currentObjs) {
-      destroyCard(this.currentObjs);
+      this.unregisterAndDestroy(this.currentObjs);
       this.currentObjs = null;
     }
     this.cardLayer.removeChildren();
