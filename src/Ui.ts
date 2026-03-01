@@ -13,12 +13,12 @@ export class Ui {
   private flashEl      = document.getElementById('flash-overlay')! as HTMLElement;
   private glitchEl     = document.getElementById('glitch-overlay')! as HTMLElement;
 
-  private popup        = document.getElementById('popup')! as HTMLElement;
-  private popupEmoji   = document.getElementById('popup-emoji')!;
-  private popupTitle   = document.getElementById('popup-title')!;
+  private popup         = document.getElementById('popup')! as HTMLElement;
+  private popupTitle    = document.getElementById('popup-title')!;
+  private popupAmount   = document.getElementById('popup-amount')! as HTMLElement;
   private popupSubtitle = document.getElementById('popup-subtitle')!;
-  private popupAmount  = document.getElementById('popup-amount')! as HTMLElement;
-  private popupBtn     = document.getElementById('popup-btn')! as HTMLButtonElement;
+  private popupBalance  = document.getElementById('popup-balance')!;
+  private popupBtn      = document.getElementById('popup-btn')! as HTMLButtonElement;
 
   readonly seedInput   = document.getElementById('seed-input')! as HTMLInputElement;
   readonly soundBtn    = document.getElementById('btn-sound')! as HTMLElement;
@@ -61,35 +61,35 @@ export class Ui {
   // ── Popup ────────────────────────────────────────────────────────────────
 
   showPopupWin(cashoutAmount: number, balance: number): void {
-    this.popupEmoji.textContent    = '💰';
-    this.popupTitle.textContent    = 'Cashed Out!';
-    this.popupSubtitle.textContent = `Balance: ${balance.toFixed(2)} FUN`;
+    this.popupTitle.textContent    = 'NICE!';
     this.popupAmount.textContent   = `+${cashoutAmount.toFixed(2)} FUN`;
     this.popupAmount.className     = 'win';
     this.popupAmount.style.display = 'block';
-    this.popupBtn.textContent      = '▶ Play Again';
+    this.popupSubtitle.textContent = 'Safe feed. Take the FUN and keep scrolling.';
+    this.popupBalance.textContent  = `Balance: ${balance.toFixed(2)} FUN`;
+    this.popupBtn.textContent      = 'COLLECT';
     this.popupBtn.className        = 'popup-btn success';
     this._showPopup();
   }
 
-  showPopupLose(balance: number): void {
-    this.popupEmoji.textContent    = '💥';
-    this.popupTitle.textContent    = 'Busted!';
-    this.popupSubtitle.textContent = `An agent caught you. Be more careful next time.\nBalance: ${balance.toFixed(2)} FUN`;
-    this.popupAmount.textContent   = '-10.00 FUN';
+  showPopupLose(balance: number, bet = 10): void {
+    this.popupTitle.textContent    = 'BUSTED';
+    this.popupAmount.textContent   = `-${bet.toFixed(2)} FUN`;
     this.popupAmount.className     = 'lose';
     this.popupAmount.style.display = 'block';
-    this.popupBtn.textContent      = balance >= 10 ? '▶ Try Again' : '↺ Refill & Play';
+    this.popupSubtitle.textContent = 'An agent caught you. Be careful next time.';
+    this.popupBalance.textContent  = `Balance: ${balance.toFixed(2)} FUN`;
+    this.popupBtn.textContent      = balance >= bet ? 'TRY AGAIN' : 'REFILL & PLAY';
     this.popupBtn.className        = 'popup-btn danger';
     this._showPopup();
   }
 
   showPopupBroke(): void {
-    this.popupEmoji.textContent    = '😅';
-    this.popupTitle.textContent    = 'Broke!';
-    this.popupSubtitle.textContent = 'You ran out of FUN.\nRefilling balance to 1000.';
+    this.popupTitle.textContent    = 'BROKE!';
     this.popupAmount.style.display = 'none';
-    this.popupBtn.textContent      = '↺ Refill & Play';
+    this.popupSubtitle.textContent = 'You ran out of FUN. Refilling to 1000.';
+    this.popupBalance.textContent  = '';
+    this.popupBtn.textContent      = 'REFILL & PLAY';
     this.popupBtn.className        = 'popup-btn primary';
     this._showPopup();
   }

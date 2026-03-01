@@ -200,7 +200,15 @@ function buildTextCard(w: number, h: number, def: CardDef): CardObjects {
 
 // ── Intro card (full-bleed Reels/TikTok style) ────────────────────────────────
 
-function buildIntroCard(w: number, h: number, def: CardDef): CardObjects {
+export interface BetSelectorOpts {
+  value:    number;
+  onChange: (v: number) => void;
+  min?:     number;
+  max?:     number;
+  step?:    number;
+}
+
+function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelectorOpts): CardObjects {
   const container = new PIXI.Container();
 
   // 1. Full-bleed background (cover-crop) ──────────────────────────────────────
@@ -275,7 +283,7 @@ function buildIntroCard(w: number, h: number, def: CardDef): CardObjects {
 
   const captionCont = new PIXI.Container();
   captionCont.addChild(panelG, titleText, bodyText);
-  const ctaAreaH = 110;
+  const ctaAreaH = betOpts ? 160 : 110;
   captionCont.x = padX;
   captionCont.y = h - ctaAreaH - panelH - 16;
   container.addChild(captionCont);
@@ -298,22 +306,108 @@ function buildIntroCard(w: number, h: number, def: CardDef): CardObjects {
   }));
   ctaLabel.anchor.set(0.5);
   ctaLabel.x = w / 2;
-  ctaLabel.y = h - 36;
+  ctaLabel.y = betOpts ? h - 92 : h - 36;
   ctaLayer.addChild(ctaLabel);
 
   // Two staggered chevrons that float upward and fade in a loop
   const CHEV_SZ = 11;
   const chev1 = makeChevronGraphic(CHEV_SZ);
   chev1.x = w / 2;
-  chev1.y = h - 64;
+  chev1.y = betOpts ? h - 108 : h - 64;
   ctaLayer.addChild(chev1);
 
   const chev2 = makeChevronGraphic(CHEV_SZ);
   chev2.x = w / 2;
-  chev2.y = h - 86;
+  chev2.y = betOpts ? h - 130 : h - 86;
   ctaLayer.addChild(chev2);
 
-  // 5. Required CardObjects stubs ───────────────────────────────────────────────
+  // 5. Bet selector (below CTA) ─────────────────────────────────────────────────
+  const BTN_SIZE = 40;
+  const SEL_W    = Math.min(Math.round(w * 0.64), 250);
+  let betCont: PIXI.Container | null = null;
+
+  if (betOpts) {
+    const { min = 10, max = 200, step = 10 } = betOpts;
+    let currentBet = betOpts.value;
+    const SEL_H = 56;
+
+    betCont = new PIXI.Container();
+
+    const betBg = new PIXI.Graphics();
+    betBg.beginFill(0x000000, 0.55);
+    betBg.drawRoundedRect(0, 0, SEL_W, SEL_H, SEL_H / 2);
+    betBg.endFill();
+    betCont.addChild(betBg);
+
+    const betLabel = new PIXI.Text('', new PIXI.TextStyle({
+      fontFamily:         TEXT_FONT,
+      fontWeight:         '700',
+      fontSize:           Math.round(Math.min(w * 0.048, 18)),
+      fill:               0xffffff,
+      align:              'center',
+      dropShadow:         true,
+      dropShadowBlur:     6,
+      dropShadowColor:    0x000000,
+      dropShadowDistance: 0,
+    }));
+    betLabel.anchor.set(0.5);
+    betLabel.x = SEL_W / 2;
+    betLabel.y = SEL_H / 2;
+    betCont.addChild(betLabel);
+
+    const refreshLabel = () => { betLabel.text = `BET  ${currentBet}`; };
+    refreshLabel();
+
+    // Minus button
+    const minusCont = new PIXI.Container();
+    minusCont.eventMode = 'static';
+    minusCont.cursor = 'pointer';
+    const minusBg = new PIXI.Graphics();
+    minusBg.beginFill(0xffffff, 0.15);
+    minusBg.drawCircle(0, 0, BTN_SIZE / 2);
+    minusBg.endFill();
+    const minusTxt = new PIXI.Text('−', new PIXI.TextStyle({
+      fontFamily: TEXT_FONT, fontWeight: '700', fontSize: 22, fill: 0xffffff,
+    }));
+    minusTxt.anchor.set(0.5);
+    minusCont.addChild(minusBg, minusTxt);
+    minusCont.x = BTN_SIZE / 2 + 4;
+    minusCont.y = SEL_H / 2;
+    minusCont.on('pointertap', () => {
+      currentBet = Math.max(min, currentBet - step);
+      betOpts.onChange(currentBet);
+      refreshLabel();
+    });
+    betCont.addChild(minusCont);
+
+    // Plus button
+    const plusCont = new PIXI.Container();
+    plusCont.eventMode = 'static';
+    plusCont.cursor = 'pointer';
+    const plusBg = new PIXI.Graphics();
+    plusBg.beginFill(0xffffff, 0.15);
+    plusBg.drawCircle(0, 0, BTN_SIZE / 2);
+    plusBg.endFill();
+    const plusTxt = new PIXI.Text('+', new PIXI.TextStyle({
+      fontFamily: TEXT_FONT, fontWeight: '700', fontSize: 22, fill: 0xffffff,
+    }));
+    plusTxt.anchor.set(0.5);
+    plusCont.addChild(plusBg, plusTxt);
+    plusCont.x = SEL_W - BTN_SIZE / 2 - 4;
+    plusCont.y = SEL_H / 2;
+    plusCont.on('pointertap', () => {
+      currentBet = Math.min(max, currentBet + step);
+      betOpts.onChange(currentBet);
+      refreshLabel();
+    });
+    betCont.addChild(plusCont);
+
+    betCont.x = (w - SEL_W) / 2;
+    betCont.y = h - 76;
+    ctaLayer.addChild(betCont);
+  }
+
+  // 6. Required CardObjects stubs ───────────────────────────────────────────────
   const animLayer = new PIXI.Container();
   container.addChild(animLayer);
 
@@ -321,9 +415,9 @@ function buildIntroCard(w: number, h: number, def: CardDef): CardObjects {
   dummy.visible = false;
   container.addChild(dummy);
 
-  // 6. Resize listener ──────────────────────────────────────────────────────────
-  let chev1BaseY = h - 64;
-  let chev2BaseY = h - 86;
+  // 7. Resize listener ──────────────────────────────────────────────────────────
+  let chev1BaseY = betOpts ? h - 108 : h - 64;
+  let chev2BaseY = betOpts ? h - 130 : h - 86;
   const onResize = () => {
     const nw = window.innerWidth;
     const nh = window.innerHeight;
@@ -334,17 +428,21 @@ function buildIntroCard(w: number, h: number, def: CardDef): CardObjects {
     drawGradBands(botGrad, nw, nh * 0.52, 0, 0.78);
     botGrad.y = nh - nh * 0.52;
     ctaLabel.x = nw / 2;
-    ctaLabel.y = nh - 36;
+    ctaLabel.y = betOpts ? nh - 92 : nh - 36;
     chev1.x = nw / 2;
     chev2.x = nw / 2;
-    chev1BaseY = nh - 64;
-    chev2BaseY = nh - 86;
+    chev1BaseY = betOpts ? nh - 108 : nh - 64;
+    chev2BaseY = betOpts ? nh - 130 : nh - 86;
     captionCont.x = Math.round(nw * 0.05);
     captionCont.y = nh - ctaAreaH - panelH - 16;
+    if (betCont) {
+      betCont.x = (nw - SEL_W) / 2;
+      betCont.y = nh - 76;
+    }
   };
   window.addEventListener('resize', onResize);
 
-  // 7. Custom animation: chevrons float up/fade (staggered), label pulses ───────
+  // 8. Custom animation: chevrons float up/fade (staggered), label pulses ───────
   let animT = 0;
   const PERIOD = 1.6; // seconds per chevron cycle
   const animFn: AnimFn = (dt) => {
@@ -516,8 +614,8 @@ function buildVideoCard(w: number, h: number, def: CardDef): CardObjects {
 
 // ── Dispatcher: text or video based on def.videoUrl ───────────────────────────
 
-function buildCard(w: number, h: number, def: CardDef): CardObjects {
-  if (def.type === 'intro') return buildIntroCard(w, h, def);
+function buildCard(w: number, h: number, def: CardDef, opts?: { betOpts?: BetSelectorOpts }): CardObjects {
+  if (def.type === 'intro') return buildIntroCard(w, h, def, opts?.betOpts);
   return def.videoUrl ? buildVideoCard(w, h, def) : buildTextCard(w, h, def);
 }
 
@@ -1009,9 +1107,9 @@ export class Renderer {
   }
 
   /** Instantly replace the current card (no transition). */
-  showCard(def: CardDef): void {
+  showCard(def: CardDef, opts?: { betOpts?: BetSelectorOpts }): void {
     this.clearCard();
-    const objs = buildCard(this.width, this.height, def);
+    const objs = buildCard(this.width, this.height, def, opts);
     this.cardLayer.addChild(objs.container);
     this.currentObjs = objs;
     this.currentAnimFn = objs.animFn ?? setupAnim(def.animType, objs, this.width, this.height);
@@ -1019,7 +1117,7 @@ export class Renderer {
   }
 
   /** Slide current card up, slide new card in from bottom. Returns Promise. */
-  async transitionTo(def: CardDef): Promise<void> {
+  async transitionTo(def: CardDef, opts?: { betOpts?: BetSelectorOpts }): Promise<void> {
     if (this.isTransitioning) return;
     this.isTransitioning = true;
 
@@ -1027,7 +1125,7 @@ export class Renderer {
     const outgoing = this.currentObjs;
     this.currentAnimFn = null; // pause idle anim during transition
 
-    const incoming = buildCard(w, h, def);
+    const incoming = buildCard(w, h, def, opts);
     this.registerCard(incoming); // start ticking the new card immediately
     incoming.container.y = h;
     incoming.container.scale.set(1.03);

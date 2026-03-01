@@ -1,8 +1,8 @@
 import { Rng, makeSeed } from './Rng';
-import { Economy, STARTING_BALANCE } from './Economy';
+import { Economy, STARTING_BALANCE, BET_MIN, BET_MAX, BET_STEP } from './Economy';
 import { OutcomeController } from './OutcomeController';
 import { ReelEngine } from './ReelEngine';
-import { Renderer } from './Renderer';
+import { Renderer, BetSelectorOpts } from './Renderer';
 import { Ui } from './Ui';
 import { INTRO_CARD } from './Card';
 import { LoadingScene, LOADING_MIN_MS } from './LoadingScene';
@@ -134,15 +134,20 @@ export class Game {
         this.swipe.setLocked(true);
         break;
 
-      case 'intro':
+      case 'intro': {
         this.swipe.setLocked(false);
         this.ui.hidePopup();
-        this.renderer.showCard(INTRO_CARD);
-        this.ui.showBottomBar({
-          roundValue: false, cashout: false, swipeHint: true,
-          hintText: 'Swipe up to begin (−10 FUN)',
-        });
+        const betOpts: BetSelectorOpts = {
+          value:    this.economy.bet,
+          onChange: (v) => { this.economy.bet = v; },
+          min:      BET_MIN,
+          max:      BET_MAX,
+          step:     BET_STEP,
+        };
+        this.renderer.showCard(INTRO_CARD, { betOpts });
+        this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
         break;
+      }
 
       case 'running':
         this.swipe.setLocked(false);
@@ -263,13 +268,13 @@ export class Game {
     this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
 
     await delay(950);
-    this.ui.showPopupLose(this.economy.balance);
+    this.ui.showPopupLose(this.economy.balance, this.economy.bet);
   }
 
   // ── Popup button ───────────────────────────────────────────────────────────
 
   private handlePopupButton(): void {
-    if (this.economy.balance < 10) {
+    if (this.economy.balance < this.economy.bet) {
       this.economy.balance = STARTING_BALANCE;
       this.ui.setBalance(this.economy.balance);
     }

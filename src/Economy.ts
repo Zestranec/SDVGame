@@ -4,29 +4,37 @@ export const MULT_PER_SWIPE = 1.1;
 /** Multiplier applied when a viral_boost card is revealed (overrides MULT_PER_SWIPE). */
 export const VIRAL_BOOST_MULT = 2.0;
 
+/** Bet selector range and step (FUN). */
+export const BET_MIN  = 10;
+export const BET_MAX  = 200;
+export const BET_STEP = 10;
+
 export class Economy {
   balance: number;
   roundValue: number;
   /** How many real cards have been seen in this round (0 = round not started). */
   cardCount: number;
+  /** Currently selected bet amount. Updated by the intro-screen bet selector. */
+  bet: number;
 
   constructor() {
     this.balance = STARTING_BALANCE;
     this.roundValue = 0;
     this.cardCount = 0;
+    this.bet = SWIPE_COST; // default bet = minimum
   }
 
   get canStartRound(): boolean {
-    return this.balance >= SWIPE_COST;
+    return this.balance >= this.bet;
   }
 
   /**
    * Called when the player initiates a round (first swipe from intro).
-   * Deducts the swipe cost, sets roundValue = SWIPE_COST.
+   * Deducts the selected bet and seeds roundValue with it.
    */
   startRound(): void {
-    this.balance -= SWIPE_COST;
-    this.roundValue = SWIPE_COST;
+    this.balance -= this.bet;
+    this.roundValue = this.bet;
     this.cardCount = 0; // incremented after each safe card via onSafeCard()
   }
 
