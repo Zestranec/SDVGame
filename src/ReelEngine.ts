@@ -3,6 +3,7 @@ import { OutcomeController } from './OutcomeController';
 import { BOMB_CARD, VIRAL_BOOST_CARD, type CardDef } from './Card';
 import { SAFE_CARDS_CONFIG } from './config/safeCards';
 import { CardStyleController } from './CardStyleController';
+import { BOMB_VIDEO_URLS, SAFE_VIDEO_URLS, BUFF_VIDEO_URLS } from './config/videoCdnUrls';
 
 /**
  * Manages the sequence of cards shown in a round.
@@ -26,11 +27,19 @@ export class ReelEngine {
   /** Draw and return the next card. Safe to call multiple times per round. */
   nextCard(): CardDef {
     const result = this.outcomeCtrl.drawCard();
-    if (result === 'bomb')        return BOMB_CARD;
-    if (result === 'viral_boost') return VIRAL_BOOST_CARD;
 
-    // Pick a safe card from the 100-card pool using the shared RNG
+    if (result === 'bomb') {
+      // Outcome first, then pick a random clip from the bomb pool
+      return { ...BOMB_CARD, videoUrl: this.rng.pick(BOMB_VIDEO_URLS) };
+    }
+
+    if (result === 'viral_boost') {
+      return { ...VIRAL_BOOST_CARD, videoUrl: this.rng.pick(BUFF_VIDEO_URLS) };
+    }
+
+    // Pick a safe card from the 100-card pool, then assign a random safe clip
     const config = SAFE_CARDS_CONFIG[this.rng.nextInt(SAFE_CARDS_CONFIG.length)];
-    return this.styleCtrl.buildCardDef(config);
+    const def    = this.styleCtrl.buildCardDef(config);
+    return { ...def, videoUrl: this.rng.pick(SAFE_VIDEO_URLS) };
   }
 }

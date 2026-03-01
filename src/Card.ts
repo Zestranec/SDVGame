@@ -4,7 +4,6 @@
  * Normal safe cards are NOT defined here — they are generated procedurally
  * by CardStyleController from SAFE_CARDS_CONFIG in src/config/safeCards.ts.
  */
-import { BOMB_VIDEO_URL, VIRAL_BOOST_VIDEO_URL } from './config/videoCdnUrls';
 
 export type CardAnimType =
   // Original animations
@@ -67,7 +66,7 @@ export const BOMB_CARD: CardDef = {
   subline:  'The bomb dropped. Round over.',
   colors:   ['#0d0005', '#1a000a'],
   animType: 'float', // no-op for video card; video content carries the drama
-  videoUrl: BOMB_VIDEO_URL,
+  // videoUrl injected per-draw by ReelEngine
 };
 
 // ── VIRAL BOOST — rare ultra-safe card with 2× multiplier ────────────────────
@@ -81,7 +80,7 @@ export const VIRAL_BOOST_CARD: CardDef = {
   colors:            ['#1a1100', '#2e1f00'],
   animType:          'viral_boost_anim',
   multiplierOverride: 2.0,
-  videoUrl:          VIRAL_BOOST_VIDEO_URL,
+  // videoUrl injected per-draw by ReelEngine
 };
 
 // ── Intro card ────────────────────────────────────────────────────────────────
