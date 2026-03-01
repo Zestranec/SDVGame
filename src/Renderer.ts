@@ -31,6 +31,8 @@ interface CardObjects {
   headline: PIXI.Text;
   subline: PIXI.Text;
   animLayer: PIXI.Container;
+  /** Present on video cards — paused and src-cleared on destroy. */
+  video?: HTMLVideoElement;
 }
 
 function makeGradientTexture(w: number, h: number, colors: [string, string]): PIXI.Texture {
@@ -49,7 +51,9 @@ function makeGradientTexture(w: number, h: number, colors: [string, string]): PI
 const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",system-ui,sans-serif';
 const TEXT_FONT  = '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif';
 
-function buildCard(w: number, h: number, def: CardDef): CardObjects {
+// ── Text card (original layout: gradient + emoji + headline + subline) ─────────
+
+function buildTextCard(w: number, h: number, def: CardDef): CardObjects {
   const container = new PIXI.Container();
 
   // Background
@@ -124,6 +128,104 @@ function buildCard(w: number, h: number, def: CardDef): CardObjects {
   return { container, bg, emoji, headline, subline, animLayer };
 }
 
+// ── Video card (full-screen looping video, cover-mode scaled) ──────────────────
+
+function buildVideoCard(w: number, h: number, def: CardDef): CardObjects {
+  const container = new PIXI.Container();
+
+  // Clip mask – prevents sprite overflow during slide transition
+  const clipMask = new PIXI.Graphics();
+  clipMask.beginFill(0xffffff);
+  clipMask.drawRect(0, 0, w, h);
+  clipMask.endFill();
+  container.addChild(clipMask);
+  container.mask = clipMask;
+
+  // Video element
+  const video           = document.createElement('video');
+  video.src             = def.videoUrl!;
+  video.muted           = true;
+  video.loop            = true;
+  video.playsInline     = true;
+  video.setAttribute('playsinline', ''); // iOS Safari
+  video.autoplay        = true;
+
+  // PIXI sprite backed by the video element (updates each frame automatically)
+  const texture = PIXI.Texture.from(video as HTMLVideoElement);
+  const sprite  = new PIXI.Sprite(texture);
+  sprite.anchor.set(0.5);
+  sprite.x = w / 2;
+  sprite.y = h / 2;
+
+  // Cover-mode scale: assume portrait until actual dimensions arrive
+  const applyScale = () => {
+    const vw    = video.videoWidth  || 1080;
+    const vh    = video.videoHeight || 1920;
+    const scale = Math.max(w / vw, h / vh);
+    sprite.scale.set(scale);
+  };
+  applyScale();
+  video.addEventListener('loadedmetadata', applyScale, { once: true });
+
+  container.addChild(sprite);
+
+  // Autoplay – fall back to a tap-to-play hint on autoplay block
+  const playPromise = video.play();
+  if (playPromise !== undefined) {
+    playPromise.catch(() => {
+      const tap = new PIXI.Text('▶  Tap to play', new PIXI.TextStyle({
+        fontFamily: TEXT_FONT,
+        fontSize:   18,
+        fontWeight: '700',
+        fill:       0xffffff,
+        dropShadow: true,
+        dropShadowBlur:     10,
+        dropShadowColor:    0x000000,
+        dropShadowDistance: 0,
+      }));
+      tap.anchor.set(0.5);
+      tap.x = w / 2;
+      tap.y = h / 2;
+      container.addChild(tap);
+      document.addEventListener('pointerdown', () => {
+        video.play().catch(() => {});
+        if (!tap.destroyed) tap.destroy();
+      }, { once: true });
+    });
+  }
+
+  // Animation overlay layer (rings/stars/badges for bomb & viral_boost)
+  const animLayer = new PIXI.Container();
+  container.addChild(animLayer);
+
+  // Invisible dummy Text objects satisfy the CardObjects interface and give
+  // animation functions (unknown_call, viral_boost_anim) a valid anchor point.
+  const dummy = new PIXI.Text('', { fontSize: 1 });
+  dummy.visible = false;
+  dummy.x = w / 2;
+  dummy.y = h * 0.35; // matches where a real emoji would sit
+  container.addChild(dummy);
+
+  return { container, bg: sprite, emoji: dummy, headline: dummy, subline: dummy, animLayer, video };
+}
+
+// ── Dispatcher: text or video based on def.videoUrl ───────────────────────────
+
+function buildCard(w: number, h: number, def: CardDef): CardObjects {
+  return def.videoUrl ? buildVideoCard(w, h, def) : buildTextCard(w, h, def);
+}
+
+// ── Cleanup helper (pauses video before PIXI destroy) ─────────────────────────
+
+function destroyCard(objs: CardObjects): void {
+  if (objs.video) {
+    objs.video.pause();
+    objs.video.removeAttribute('src');
+    objs.video.load(); // abort any pending network request
+  }
+  objs.container.destroy({ children: true });
+}
+
 // ── Animation setups ──────────────────────────────────────────────────────────
 
 type AnimFn = (delta: number) => void;
@@ -132,6 +234,12 @@ type Cleanup = () => void;
 function setupAnim(type: CardAnimType, objs: CardObjects, w: number, h: number): AnimFn {
   const { emoji, headline, animLayer } = objs;
   let t = 0;
+
+  // Video safe cards: emoji/headline are null; only the two overlay anims
+  // (unknown_call, viral_boost_anim) are exempt — they draw on animLayer.
+  if (!emoji && type !== 'unknown_call' && type !== 'viral_boost_anim') {
+    return () => {};
+  }
 
   switch (type) {
     // ── 1. Bounce (Productivity Guru) ────────────────────────────────────────
@@ -502,7 +610,8 @@ function setupAnim(type: CardAnimType, objs: CardObjects, w: number, h: number):
     // ── Unknown Call (danger card) ────────────────────────────────────────────
     case 'unknown_call': {
       const cx = w / 2;
-      const cy = emoji.y;
+      // Use emoji centre if present (text card); fall back to fixed position for video card
+      const cy = emoji ? emoji.y : h * 0.35;
 
       // Pulsing red rings
       const ringG = new PIXI.Graphics();
@@ -544,9 +653,11 @@ function setupAnim(type: CardAnimType, objs: CardObjects, w: number, h: number):
           ringG.lineStyle(2.5, 0xff3333, alpha);
           ringG.drawCircle(cx, cy, radius);
         }
-        // Subtle shake
-        emoji.x = cx + Math.sin(t * 18) * 3.5;
-        emoji.y = cy + Math.cos(t * 14) * 2.5;
+        // Subtle shake (text card only; video card has no emoji sprite)
+        if (emoji) {
+          emoji.x = cx + Math.sin(t * 18) * 3.5;
+          emoji.y = cy + Math.cos(t * 14) * 2.5;
+        }
         // Buttons fade in
         const btnAlpha = Math.min(1, t * 1.5);
         answerG.alpha = declineG.alpha = answerT.alpha = declineT.alpha = btnAlpha;
@@ -555,7 +666,8 @@ function setupAnim(type: CardAnimType, objs: CardObjects, w: number, h: number):
 
     // ── Viral Boost (rare golden card) ────────────────────────────────────────
     case 'viral_boost_anim': {
-      const cx = w / 2;
+      const cx    = w / 2;
+      const emojiCy = emoji ? emoji.y : h * 0.35;
       type GoldStar = { g: PIXI.Graphics; x: number; y: number; vy: number; vx: number; rot: number };
       const stars: GoldStar[] = [];
       const glowG = new PIXI.Graphics();
@@ -586,7 +698,7 @@ function setupAnim(type: CardAnimType, objs: CardObjects, w: number, h: number):
         glowG.clear();
         const glowAlpha = 0.18 + Math.sin(t * 3.5) * 0.12;
         glowG.lineStyle(7, 0xffd700, glowAlpha);
-        glowG.drawCircle(cx, emoji.y, 48 + Math.sin(t * 3.5) * 9);
+        glowG.drawCircle(cx, emojiCy, 48 + Math.sin(t * 3.5) * 9);
 
         // Emoji pulse
         emoji.scale.set(1.08 + Math.sin(t * 2.2) * 0.10);
@@ -679,7 +791,7 @@ export class Renderer {
         if (t >= DURATION) {
           this.app.ticker.remove(tick);
           if (outgoing) {
-            outgoing.container.destroy({ children: true });
+            destroyCard(outgoing);
           }
           this.currentObjs = incoming;
           this.currentAnimFn = setupAnim(def.animType, incoming, w, h);
@@ -779,7 +891,7 @@ export class Renderer {
   private clearCard(): void {
     this.currentAnimFn = null;
     if (this.currentObjs) {
-      this.currentObjs.container.destroy({ children: true });
+      destroyCard(this.currentObjs);
       this.currentObjs = null;
     }
     this.cardLayer.removeChildren();

@@ -7,6 +7,7 @@
  */
 import type { CardDef, CardAnimType } from './Card';
 import type { SafeCardConfig } from './config/safeCards';
+import { SAFE_VIDEO_URLS } from './config/videoCdnUrls';
 
 // ── FNV-1a 32-bit hash ───────────────────────────────────────────────────────
 
@@ -62,6 +63,8 @@ export class CardStyleController {
 
     const animType = SAFE_ANIM_TYPES[(h >> 12) % SAFE_ANIM_TYPES.length];
     const emoji    = config.icon?.trim() || '🛡️';
+    // Round-robin across the 4 safe video URLs, keyed by card id hash
+    const videoUrl = SAFE_VIDEO_URLS[h % SAFE_VIDEO_URLS.length];
 
     const def: CardDef = {
       id:       config.id,
@@ -71,6 +74,7 @@ export class CardStyleController {
       subline:  config.subtitle,
       colors:   [hslToHex(hue1, sat1, lit1), hslToHex(hue2, sat2, lit2)],
       animType,
+      videoUrl,
     };
 
     this.cache.set(config.id, def);

@@ -4,6 +4,7 @@
  * Normal safe cards are NOT defined here — they are generated procedurally
  * by CardStyleController from SAFE_CARDS_CONFIG in src/config/safeCards.ts.
  */
+import { BOMB_VIDEO_URL, SAFE_VIDEO_URLS } from './config/videoCdnUrls';
 
 export type CardAnimType =
   // Original animations
@@ -44,6 +45,11 @@ export interface CardDef {
    * Used by viral_boost (2.0×).
    */
   multiplierOverride?: number;
+  /**
+   * When present the card renders as a full-screen looping muted video
+   * instead of the emoji/headline/subline text layout.
+   */
+  videoUrl?: string;
 }
 
 // ── UNKNOWN CALL — replaces the old bomb card ─────────────────────────────────
@@ -56,6 +62,7 @@ export const UNKNOWN_CALL_CARD: CardDef = {
   subline:  'Answer? Ignore? Regret forever.',
   colors:   ['#0d0005', '#1a000a'],
   animType: 'unknown_call',
+  videoUrl: BOMB_VIDEO_URL,
 };
 
 // ── VIRAL BOOST — rare ultra-safe card with 2× multiplier ────────────────────
@@ -69,6 +76,7 @@ export const VIRAL_BOOST_CARD: CardDef = {
   colors:            ['#1a1100', '#2e1f00'],
   animType:          'viral_boost_anim',
   multiplierOverride: 2.0,
+  videoUrl:          SAFE_VIDEO_URLS[0],
 };
 
 // ── Intro card ────────────────────────────────────────────────────────────────
