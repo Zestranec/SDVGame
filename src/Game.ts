@@ -1,18 +1,19 @@
-import { Rng, makeSeed } from './Rng';
+import { Rng } from './Rng';
 import { Economy, STARTING_BALANCE, BET_MIN, BET_MAX, BET_STEP } from './Economy';
-import { OutcomeController } from './OutcomeController';
-import { ReelEngine } from './ReelEngine';
+import { sampleFailAtLike, calcPayout, MAX_LEVEL, CASHOUT_MULTIPLIERS } from './SpinTokController';
 import { Renderer, BetSelectorOpts } from './Renderer';
 import { Ui } from './Ui';
 import { INTRO_CARD } from './Card';
+import type { CardDef } from './Card';
+import { SAFE_VIDEO_URLS } from './config/videoCdnUrls';
 import { LoadingScene, LOADING_MIN_MS } from './LoadingScene';
 
-export type GameState = 'loading' | 'intro' | 'running' | 'transitioning' | 'win' | 'lose';
+export type GameState = 'loading' | 'intro' | 'running' | 'win' | 'lose';
 
 /**
  * Pointer / wheel swipe input handler.
+ * Used only for the intro → begin-round gesture.
  * Fires onSwipeUp() exactly once per discrete gesture.
- * A new gesture can only start after pointerup.
  */
 class SwipeInput {
   private startY = 0;
@@ -43,7 +44,7 @@ class SwipeInput {
     el.addEventListener('pointerup',     () => { this.dragging = false; }, { passive: true });
     el.addEventListener('pointercancel', () => { this.dragging = false; }, { passive: true });
 
-    // Mouse wheel / trackpad  (deltaY > 0 = scroll down = "swipe up" in feed)
+    // Mouse wheel / trackpad (deltaY > 0 = scroll down = "swipe up" in feed)
     el.addEventListener('wheel', (e) => {
       e.preventDefault();
       if (this.locked) return;
@@ -64,35 +65,40 @@ export class Game {
   private state: GameState = 'loading';
   private rng!: Rng;
   private economy: Economy;
-  private outCtrl!: OutcomeController;
-  private reel!: ReelEngine;
   private renderer: Renderer;
   private ui: Ui;
   private swipe: SwipeInput;
   private muted = false;
+  private busy = false;
+
+  // ── Round state (pre-sampled per round; failAtLike NEVER exposed) ───────────
+  private failAtLike = Infinity;
+  private level = 0;
+  private videoUrls: string[] = [];
 
   constructor(canvas: HTMLCanvasElement) {
     this.economy  = new Economy();
     this.renderer = new Renderer(canvas);
     this.ui       = new Ui();
 
-    this.ui.onCashout(     () => this.handleCashout());
-    this.ui.onPopupButton( () => this.handlePopupButton());
+    this.ui.onLike(       () => { void this.handleLike(); });
+    this.ui.onDislike(    () => { void this.handleDislike(); });
+    this.ui.onCollect(    () => { void this.handleDislike(); }); // collect = dislike at MAX_LEVEL
+    this.ui.onPopupButton(() => this.handlePopupButton());
+
     this.ui.soundBtn.addEventListener('click', () => {
       this.muted = !this.muted;
       this.ui.soundBtn.textContent = this.muted ? '🔇' : '🔊';
     });
     this.ui.seedInput.addEventListener('change', () => this.resetRng());
 
-    this.swipe = new SwipeInput(document.body, () => this.handleSwipeUp());
+    this.swipe = new SwipeInput(document.body, () => { void this.handleSwipeUp(); });
 
-    // Seed + initial HUD state (balance visible but bottom bar hidden during loading)
     this.resetRng();
     this.ui.setBalance(this.economy.balance);
-    this.ui.clearRoundHud();
-    this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
+    this.ui.hideActions();
+    this.ui.hideLevelHud();
 
-    // Show loading screen; go directly to gameplay when done
     this.setState('loading');
     void this.boot();
   }
@@ -103,22 +109,17 @@ export class Game {
     const startTime = performance.now();
     const scene     = new LoadingScene(this.renderer.app);
 
-    // Simulate progress 0 → 90 % over ~1 000 ms while assets load in parallel
-    const SIM_MS  = 1000;
-    const ticker  = setInterval(() => {
+    const SIM_MS = 1000;
+    const ticker = setInterval(() => {
       const t = Math.min((performance.now() - startTime) / SIM_MS, 1);
       scene.setProgress(t * 0.9);
     }, 16);
 
-    // Load logo + enforce minimum display time (whichever takes longer)
-    await Promise.all([
-      scene.loadAssets(),
-      delay(LOADING_MIN_MS),
-    ]);
+    await Promise.all([scene.loadAssets(), delay(LOADING_MIN_MS)]);
 
     clearInterval(ticker);
     scene.setProgress(1.0);
-    await delay(120); // brief hold at 100 % before transition
+    await delay(120);
 
     scene.destroy();
     this.setState('intro');
@@ -137,6 +138,8 @@ export class Game {
       case 'intro': {
         this.swipe.setLocked(false);
         this.ui.hidePopup();
+        this.ui.hideActions();
+        this.ui.hideLevelHud();
         const betOpts: BetSelectorOpts = {
           value:    this.economy.bet,
           onChange: (v) => { this.economy.bet = v; },
@@ -145,118 +148,105 @@ export class Game {
           step:     BET_STEP,
         };
         this.renderer.showCard(INTRO_CARD, { betOpts });
-        this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
         break;
       }
 
-      case 'running':
-        this.swipe.setLocked(false);
-        this.ui.setRoundValue(this.economy.roundValue, this.economy.multiplier);
+      case 'running': {
+        this.swipe.setLocked(true); // buttons handle interaction during a round
         this.ui.setBalance(this.economy.balance);
-        this.ui.showBottomBar({
-          roundValue: true, cashout: true, swipeHint: true,
-          hintText: 'Swipe up to continue',
-        });
+        const mult   = CASHOUT_MULTIPLIERS[this.level];
+        const payout = this.economy.bet * mult;
+        this.ui.setLevelHud(this.level, `×${mult} = ${payout.toFixed(2)} FUN`);
+        this.ui.showLikeDislike(this.level === MAX_LEVEL);
         break;
-
-      case 'transitioning':
-        this.swipe.setLocked(true);
-        this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
-        break;
+      }
 
       case 'win':
       case 'lose':
         this.swipe.setLocked(true);
+        this.ui.hideActions();
+        this.ui.hideLevelHud();
         break;
     }
   }
 
-  // ── Swipe ──────────────────────────────────────────────────────────────────
-
-  /**
-   * Auto-swipe bug fix: a `busy` flag ensures only one async swipe
-   * handler runs at a time, regardless of how quickly pointer/wheel
-   * events fire.  The SwipeInput lock still handles the UI side;
-   * `busy` is the logical guard at the Game level.
-   */
-  private busy = false;
+  // ── Swipe (intro only) ────────────────────────────────────────────────────
 
   private async handleSwipeUp(): Promise<void> {
     if (this.busy) return;
     if (this.state === 'intro') {
       this.busy = true;
       try { await this.beginRound(); } finally { this.busy = false; }
-    } else if (this.state === 'running') {
-      this.busy = true;
-      try { await this.advanceCard(); } finally { this.busy = false; }
     }
   }
 
   // ── Round start ────────────────────────────────────────────────────────────
 
   private async beginRound(): Promise<void> {
-    this.resetRng(); // fresh seed per round (uses typed seed if present, else random)
-
     if (!this.economy.canStartRound) {
       this.economy.balance = STARTING_BALANCE;
       this.ui.setBalance(this.economy.balance);
     }
 
     this.economy.startRound();
-    this.reel.startRound();
-    this.setState('transitioning');
+    this.resetRng(); // fresh RNG per round
 
-    const firstCard = this.reel.nextCard();
-    await this.renderer.transitionTo(firstCard);
+    // Pre-sample outcome — failAtLike is NEVER surfaced to the player
+    this.failAtLike = sampleFailAtLike(this.rng);
 
-    if (firstCard.type === 'bomb') {
-      await this.triggerBomb();
-    } else {
-      // Safe or viral_boost — apply multiplier (viral_boost uses its own override)
-      this.economy.onSafeCard(firstCard.multiplierOverride);
-      this.setState('running');
+    // Pre-sample a unique video URL for every possible level
+    this.videoUrls = new Array(MAX_LEVEL + 1);
+    for (let i = 1; i <= MAX_LEVEL; i++) {
+      this.videoUrls[i] = this.rng.pick(SAFE_VIDEO_URLS as readonly string[]);
+    }
+
+    this.level = 1;
+    await this.renderer.transitionTo(this.makeVideoCard(1));
+    this.setState('running');
+  }
+
+  // ── LIKE ──────────────────────────────────────────────────────────────────
+
+  private async handleLike(): Promise<void> {
+    if (this.busy || this.state !== 'running') return;
+    this.busy = true;
+    try {
+      this.ui.hideActions();
+      this.ui.hideLevelHud();
+
+      if (this.level === this.failAtLike) {
+        await this.triggerLose();
+      } else {
+        this.level++;
+        await this.renderer.transitionTo(this.makeVideoCard(this.level));
+        this.setState('running');
+      }
+    } finally {
+      this.busy = false;
     }
   }
 
-  // ── Next card ──────────────────────────────────────────────────────────────
+  // ── DISLIKE / COLLECT ─────────────────────────────────────────────────────
 
-  private async advanceCard(): Promise<void> {
-    if (this.state !== 'running') return;
-    this.setState('transitioning');
-
-    const card = this.reel.nextCard();
-    await this.renderer.transitionTo(card);
-
-    if (card.type === 'bomb') {
-      await this.triggerBomb();
-    } else {
-      // Safe or viral_boost — pass the override multiplier if present
-      this.economy.onSafeCard(card.multiplierOverride);
-      this.setState('running');
+  private async handleDislike(): Promise<void> {
+    if (this.busy || this.state !== 'running') return;
+    this.busy = true;
+    try {
+      const payout = calcPayout(this.economy.bet, this.level);
+      this.economy.addWinnings(payout);
+      this.setState('win');
+      this.ui.setBalance(this.economy.balance);
+      setTimeout(() => {
+        this.ui.showPopupWin(payout, this.economy.balance);
+      }, 200);
+    } finally {
+      this.busy = false;
     }
   }
 
-  // ── Cashout ────────────────────────────────────────────────────────────────
+  // ── Lose (LIKE failed) ────────────────────────────────────────────────────
 
-  private handleCashout(): void {
-    if (this.state !== 'running') return;
-
-    const gross = this.economy.cashout(); // total FUN added to balance
-    this.setState('win');
-
-    this.renderer.celebrateCashout();
-    this.ui.setBalance(this.economy.balance);
-    this.ui.clearRoundHud();
-    this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
-
-    setTimeout(() => {
-      this.ui.showPopupWin(gross, this.economy.balance);
-    }, 650);
-  }
-
-  // ── Bomb ───────────────────────────────────────────────────────────────────
-
-  private async triggerBomb(): Promise<void> {
+  private async triggerLose(): Promise<void> {
     this.setState('lose');
 
     this.renderer.shake(22, 32);
@@ -264,10 +254,7 @@ export class Game {
     this.ui.flashRed(550);
     this.ui.glitchEffect(650);
 
-    this.economy.onBomb();
     this.ui.setBalance(this.economy.balance);
-    this.ui.clearRoundHud();
-    this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
 
     await delay(950);
     this.ui.showPopupLose(this.economy.balance, this.economy.bet);
@@ -280,13 +267,12 @@ export class Game {
       this.economy.balance = STARTING_BALANCE;
       this.ui.setBalance(this.economy.balance);
     }
-    // Clear seed so the next round is random by default
-    // (player can retype a seed before swiping to reproduce a specific round)
     this.ui.seedInput.value = '';
+    this.resetRng();
     this.setState('intro');
   }
 
-  // ── RNG reset ──────────────────────────────────────────────────────────────
+  // ── RNG ───────────────────────────────────────────────────────────────────
 
   private resetRng(): void {
     const raw  = parseInt(this.ui.seedInput.value.trim(), 10);
@@ -296,10 +282,22 @@ export class Game {
 
     this.ui.seedInput.value = String(seed);
     console.log('Round seed:', seed);
+    this.rng = new Rng(seed);
+  }
 
-    this.rng     = new Rng(seed);
-    this.outCtrl = new OutcomeController(this.rng);
-    this.reel    = new ReelEngine(this.rng, this.outCtrl);
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  private makeVideoCard(level: number): CardDef {
+    return {
+      id:       `spintok_level_${level}`,
+      type:     'safe',
+      emoji:    '',
+      headline: '',
+      subline:  '',
+      colors:   ['#000', '#000'],
+      animType: 'float',
+      videoUrl: this.videoUrls[level],
+    };
   }
 }
 

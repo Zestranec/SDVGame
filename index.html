@@ -70,8 +70,26 @@
         line-height: 1.2;
       }
 
-      .hud-value.gold { color: #ffd700; }
+      .hud-value.gold  { color: #ffd700; }
       .hud-value.green { color: #00e676; }
+
+      /* Level HUD (right side) */
+      #level-hud-item {
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        min-width: 80px;
+      }
+
+      #cashout-preview {
+        font-size: 10px;
+        font-weight: 600;
+        color: #ffd700;
+        text-shadow: 0 0 8px rgba(255,215,0,0.5);
+        white-space: nowrap;
+        letter-spacing: 0.2px;
+      }
 
       /* Seed input */
       #seed-wrap {
@@ -98,76 +116,59 @@
 
       #seed-input:focus { border-color: rgba(255,255,255,0.5); }
 
-      /* ── Bottom bar ───────────────────────────────────────────────── */
-      #hud-bottom {
+      /* ── Action area (SpinTok buttons) ────────────────────────────── */
+      #action-area {
         position: absolute;
         bottom: 0; left: 0; right: 0;
-        padding: 0 20px 16px;
-        padding-bottom: max(16px, env(safe-area-inset-bottom));
+        padding: 0 20px 20px;
+        padding-bottom: max(20px, env(safe-area-inset-bottom));
         background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%);
-        display: flex;
-        flex-direction: column;
+        display: none;
+        flex-direction: row;
         align-items: center;
-        gap: 8px;
+        justify-content: center;
+        gap: 12px;
         pointer-events: none;
       }
 
-      #round-value-display {
-        font-size: 40px;
-        font-weight: 800;
-        color: #fff;
-        text-shadow: 0 0 24px rgba(255,215,0,0.7), 0 2px 10px rgba(0,0,0,0.9);
-        letter-spacing: -0.5px;
-        line-height: 1;
-        display: none;
-      }
-
-      #multiplier-display {
-        font-size: 17px;
-        font-weight: 700;
-        color: #ffd700;
-        text-shadow: 0 0 12px rgba(255,215,0,0.5);
-        display: none;
-      }
-
-      #btn-cashout {
+      #btn-like, #btn-dislike, #btn-collect {
         pointer-events: all;
-        background: linear-gradient(135deg, #00c853, #00e676);
-        color: #000;
         border: none;
         border-radius: 50px;
-        padding: 14px 40px;
+        padding: 16px 0;
         font-size: 17px;
         font-weight: 800;
-        letter-spacing: 0.3px;
         cursor: pointer;
-        box-shadow: 0 4px 24px rgba(0,200,83,0.55);
         transition: transform 0.1s;
-        display: none;
         white-space: nowrap;
+        flex: 1;
+        max-width: 180px;
       }
 
-      #btn-cashout:active { transform: scale(0.95); }
+      #btn-like:active, #btn-dislike:active, #btn-collect:active {
+        transform: scale(0.95);
+      }
 
-      #swipe-hint {
-        font-size: 13px;
-        color: rgba(255,255,255,0.65);
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        letter-spacing: 0.3px;
+      #btn-like {
+        background: linear-gradient(135deg, #ff4467, #ff2d55);
+        color: #fff;
+        box-shadow: 0 4px 24px rgba(255,68,103,0.55);
+      }
+
+      #btn-dislike {
+        background: rgba(255,255,255,0.15);
+        border: 1.5px solid rgba(255,255,255,0.35) !important;
+        color: #fff;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+      }
+
+      #btn-collect {
+        background: linear-gradient(135deg, #ffd700, #ff9f00);
+        color: #000;
+        box-shadow: 0 4px 24px rgba(255,215,0,0.55);
+        max-width: 280px;
         display: none;
-      }
-
-      #swipe-hint .arrow {
-        animation: bounce-up 1.6s ease-in-out infinite;
-        display: inline-block;
-        font-size: 15px;
-      }
-
-      @keyframes bounce-up {
-        0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(-6px); }
       }
 
       /* ── Right side icons ─────────────────────────────────────────── */
@@ -200,7 +201,7 @@
 
       .icon-btn:active { background: rgba(255,255,255,0.28); }
 
-      /* ── Flash overlay (bomb effect) ──────────────────────────────── */
+      /* ── Flash overlay (lose effect) ──────────────────────────────── */
       #flash-overlay {
         position: absolute;
         inset: 0;
@@ -322,7 +323,7 @@
         box-shadow: 0 4px 20px rgba(255,68,68,0.45);
       }
 
-      /* ── Glitch overlay (bomb effect) ────────────────────────────── */
+      /* ── Glitch overlay (lose effect) ────────────────────────────── */
       #glitch-overlay {
         position: absolute;
         inset: 0;
@@ -357,21 +358,19 @@
           <input id="seed-input" type="number" value="" min="1" max="999999999" placeholder="auto" />
         </div>
 
-        <div class="hud-item">
-          <span class="hud-label">Round</span>
-          <span class="hud-value green" id="round-val-hud">—</span>
+        <!-- Level HUD (shown during a round) -->
+        <div class="hud-item" id="level-hud-item">
+          <span class="hud-label">Level</span>
+          <span class="hud-value green" id="level-number">1</span>
+          <span id="cashout-preview"></span>
         </div>
       </div>
 
-      <!-- Bottom bar -->
-      <div id="hud-bottom">
-        <div id="round-value-display">10.00</div>
-        <div id="multiplier-display">×1.00</div>
-        <button id="btn-cashout">💰 Take Profit (+10.00)</button>
-        <div id="swipe-hint">
-          <span class="arrow">↑</span>
-          <span id="swipe-hint-text">Swipe up to continue</span>
-        </div>
+      <!-- Action area (Like / Dislike / Collect buttons) -->
+      <div id="action-area">
+        <button id="btn-dislike">👎 DISLIKE</button>
+        <button id="btn-like">❤️ LIKE</button>
+        <button id="btn-collect">💎 COLLECT</button>
       </div>
 
       <!-- Right side icons -->
@@ -380,7 +379,7 @@
         <div class="icon-btn" id="btn-help" title="Help">❓</div>
       </div>
 
-      <!-- Flash + glitch overlays (bomb effects) -->
+      <!-- Flash + glitch overlays (lose effects) -->
       <div id="flash-overlay"></div>
       <div id="glitch-overlay"></div>
 

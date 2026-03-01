@@ -1,96 +1,83 @@
 import { Rng } from './Rng';
-import { OutcomeController } from './OutcomeController';
-import { SWIPE_COST, MULT_PER_SWIPE, VIRAL_BOOST_MULT } from './Economy';
+import { sampleFailAtLike, calcPayout, CASHOUT_MULTIPLIERS, MAX_LEVEL } from './SpinTokController';
 
 export interface SimResult {
-  rounds: number;
-  rtp: number;
-  avgSwipes: number;
-  winRate: number;
-  loseRate: number;
-  totalWagered: number;
+  rounds:        number;
+  rtp:           number;
+  avgLevel:      number;
+  winRate:       number;
+  loseRate:      number;
+  totalWagered:  number;
   totalReturned: number;
-  viralBoosts: number;
-  playerModel: string;
+  playerModel:   string;
 }
 
 /**
- * Simulate N rounds using the per-draw probability model.
+ * Simulate N rounds of SpinTok with a fixed cashout strategy.
  *
- * MATH — RTP at cashoutDepth = 1 (optimal):
- *   P(bomb)         = 0.15
- *   P(viral_boost)  = 0.85 × 0.0196 ≈ 1.67 %
- *   P(normal safe)  = 0.85 × 0.9804 ≈ 83.33 %
- *   E[mult | safe]  = 0.0196 × 2.0 + 0.9804 × 1.1 = 1.1176
- *   RTP             = 0.85 × 1.1176 ≈ 95.0 %
+ * MATH — optimal RTP (cashoutAtLevel ≥ 2):
+ *   p[1] = RTP_TARGET / C[2]  = 0.95 / 1.0 = 0.95
+ *   EV   = p[1] × C[2] × bet = 0.95 × bet  → RTP = 95 %
  *
- * @param rounds       Number of rounds to simulate.
- * @param seed         Deterministic PRNG seed.
- * @param cashoutDepth Cash out after this many safe draws (1 = optimal / target).
+ *   For k ≥ 2:  p[k] = C[k] / C[k+1]
+ *   EV(dislike at k) = EV(like at k) = RTP_TARGET × bet  (strategy invariant)
+ *
+ * @param rounds           Number of rounds to simulate.
+ * @param seed             Deterministic RNG seed.
+ * @param cashoutAtLevel   Dislike (collect) upon reaching this level.
+ *                         Use MAX_LEVEL to always try for the jackpot.
  */
 export function runSimulation(
   rounds: number,
   seed: number = 42,
-  cashoutDepth = 1,
+  cashoutAtLevel = 2,
 ): SimResult {
-  const rng     = new Rng(seed);
-  const outCtrl = new OutcomeController(rng);
+  const rng = new Rng(seed);
+  const bet = 10;
 
   let totalWagered  = 0;
   let totalReturned = 0;
-  let totalSwipes   = 0;
+  let totalLevels   = 0;
   let wins          = 0;
   let losses        = 0;
-  let viralBoosts   = 0;
 
   for (let r = 0; r < rounds; r++) {
-    totalWagered += SWIPE_COST;
+    totalWagered += bet;
 
-    let roundValue = SWIPE_COST;
-    let safeCount  = 0;
-    let cardIdx    = 0;
-    let done       = false;
+    const failAt = sampleFailAtLike(rng);
+    let level    = 1;
+    let done     = false;
 
     while (!done) {
-      const draw = outCtrl.drawCard();
-
-      if (draw === 'bomb') {
+      if (level >= cashoutAtLevel || level === MAX_LEVEL) {
+        // Player dislike-cashes-out at this level
+        totalReturned += calcPayout(bet, level);
+        wins++;
+        totalLevels += level;
+        done = true;
+      } else if (level === failAt) {
+        // LIKE attempt fails → round lost
         losses++;
-        totalSwipes += cardIdx + 1;
+        totalLevels += level;
         done = true;
       } else {
-        const mult = draw === 'viral_boost' ? VIRAL_BOOST_MULT : MULT_PER_SWIPE;
-        if (draw === 'viral_boost') viralBoosts++;
-
-        roundValue *= mult;
-        safeCount++;
-
-        if (safeCount >= cashoutDepth || cardIdx >= 15) {
-          totalReturned += roundValue;
-          wins++;
-          totalSwipes += cardIdx + 1;
-          done = true;
-        } else {
-          cardIdx++;
-        }
+        level++; // survived LIKE, advance
       }
     }
   }
 
-  const label =
-    cashoutDepth === 1
-      ? 'optimal (cash out after 1 safe card)'
-      : `depth-${cashoutDepth} (cash out after ${cashoutDepth} safe cards)`;
+  const label = cashoutAtLevel >= MAX_LEVEL
+    ? `always LIKE (jackpot at level ${MAX_LEVEL}, C×${CASHOUT_MULTIPLIERS[MAX_LEVEL]})`
+    : `dislike at level ${cashoutAtLevel} (C×${CASHOUT_MULTIPLIERS[cashoutAtLevel]})`;
 
   return {
     rounds,
-    rtp:          totalWagered > 0 ? totalReturned / totalWagered : 0,
-    avgSwipes:    totalSwipes  / rounds,
-    winRate:      wins         / rounds,
-    loseRate:     losses       / rounds,
+    rtp:           totalWagered > 0 ? totalReturned / totalWagered : 0,
+    avgLevel:      totalLevels / rounds,
+    winRate:       wins   / rounds,
+    loseRate:      losses / rounds,
     totalWagered,
     totalReturned,
-    viralBoosts,
-    playerModel:  label,
+    playerModel:   label,
   };
 }

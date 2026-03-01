@@ -1,27 +1,30 @@
 /**
- * Ui — manages all HTML overlay elements.
+ * Ui — manages all HTML overlay elements for SpinTok mode.
  * Pure DOM manipulation; no game logic here.
  */
 export class Ui {
-  private balanceEl    = document.getElementById('balance-display')!;
-  private roundValHud  = document.getElementById('round-val-hud')!;
-  private roundValBig  = document.getElementById('round-value-display')! as HTMLElement;
-  private multiplierEl = document.getElementById('multiplier-display')! as HTMLElement;
-  private cashoutBtn   = document.getElementById('btn-cashout')! as HTMLButtonElement;
-  private swipeHint    = document.getElementById('swipe-hint')! as HTMLElement;
-  private swipeText    = document.getElementById('swipe-hint-text')! as HTMLElement;
-  private flashEl      = document.getElementById('flash-overlay')! as HTMLElement;
-  private glitchEl     = document.getElementById('glitch-overlay')! as HTMLElement;
+  private balanceEl   = document.getElementById('balance-display')!   as HTMLElement;
+  private levelNumEl  = document.getElementById('level-number')!       as HTMLElement;
+  private levelHudEl  = document.getElementById('level-hud-item')!     as HTMLElement;
+  private cashoutPrev = document.getElementById('cashout-preview')!    as HTMLElement;
 
-  private popup         = document.getElementById('popup')! as HTMLElement;
+  private actionArea  = document.getElementById('action-area')!        as HTMLElement;
+  private likeBtn     = document.getElementById('btn-like')!            as HTMLButtonElement;
+  private dislikeBtn  = document.getElementById('btn-dislike')!         as HTMLButtonElement;
+  private collectBtn  = document.getElementById('btn-collect')!         as HTMLButtonElement;
+
+  private flashEl     = document.getElementById('flash-overlay')!      as HTMLElement;
+  private glitchEl    = document.getElementById('glitch-overlay')!     as HTMLElement;
+
+  private popup         = document.getElementById('popup')!            as HTMLElement;
   private popupTitle    = document.getElementById('popup-title')!;
-  private popupAmount   = document.getElementById('popup-amount')! as HTMLElement;
+  private popupAmount   = document.getElementById('popup-amount')!     as HTMLElement;
   private popupSubtitle = document.getElementById('popup-subtitle')!;
   private popupBalance  = document.getElementById('popup-balance')!;
-  private popupBtn      = document.getElementById('popup-btn')! as HTMLButtonElement;
+  private popupBtn      = document.getElementById('popup-btn')!        as HTMLButtonElement;
 
-  readonly seedInput   = document.getElementById('seed-input')! as HTMLInputElement;
-  readonly soundBtn    = document.getElementById('btn-sound')! as HTMLElement;
+  readonly seedInput = document.getElementById('seed-input')! as HTMLInputElement;
+  readonly soundBtn  = document.getElementById('btn-sound')!  as HTMLElement;
 
   // ── Balance ──────────────────────────────────────────────────────────────
 
@@ -29,33 +32,56 @@ export class Ui {
     this.balanceEl.textContent = value.toFixed(2);
   }
 
-  // ── Round HUD ────────────────────────────────────────────────────────────
+  // ── Level HUD ────────────────────────────────────────────────────────────
 
-  setRoundValue(value: number, multiplier: number): void {
-    this.roundValHud.textContent  = value.toFixed(2);
-    this.roundValBig.textContent  = value.toFixed(2);
-    this.multiplierEl.textContent = `×${multiplier.toFixed(2)}`;
-    this.cashoutBtn.textContent   = `💰 Take Profit (+${value.toFixed(2)})`;
+  /**
+   * Show the level pill and cashout preview.
+   * @param level           Current SpinTok level (1-22).
+   * @param previewText     e.g. "×2.5 = 25.00 FUN"
+   */
+  setLevelHud(level: number, previewText: string): void {
+    this.levelNumEl.textContent  = String(level);
+    this.cashoutPrev.textContent = previewText;
+    this.levelHudEl.style.display = 'flex';
   }
 
-  clearRoundHud(): void {
-    this.roundValHud.textContent = '—';
+  hideLevelHud(): void {
+    this.levelHudEl.style.display = 'none';
   }
 
-  // ── Bottom bar visibility ─────────────────────────────────────────────────
+  // ── Action buttons ───────────────────────────────────────────────────────
 
-  showBottomBar(opts: { roundValue: boolean; cashout: boolean; swipeHint: boolean; hintText?: string }): void {
-    this.roundValBig.style.display  = opts.roundValue ? 'block' : 'none';
-    this.multiplierEl.style.display = opts.roundValue ? 'block' : 'none';
-    this.cashoutBtn.style.display   = opts.cashout    ? 'block' : 'none';
-    this.swipeHint.style.display    = opts.swipeHint  ? 'flex' : 'none';
-    if (opts.hintText) this.swipeText.textContent = opts.hintText;
+  /**
+   * Show the bottom action area.
+   * @param collectOnly  When true (level 22) show only COLLECT; otherwise LIKE + DISLIKE.
+   */
+  showLikeDislike(collectOnly = false): void {
+    this.actionArea.style.display = 'flex';
+    if (collectOnly) {
+      this.likeBtn.style.display    = 'none';
+      this.dislikeBtn.style.display = 'none';
+      this.collectBtn.style.display = 'block';
+    } else {
+      this.likeBtn.style.display    = 'block';
+      this.dislikeBtn.style.display = 'block';
+      this.collectBtn.style.display = 'none';
+    }
   }
 
-  // ── Cashout button ────────────────────────────────────────────────────────
+  hideActions(): void {
+    this.actionArea.style.display = 'none';
+  }
 
-  onCashout(handler: () => void): void {
-    this.cashoutBtn.addEventListener('click', handler);
+  onLike(handler: () => void): void {
+    this.likeBtn.addEventListener('click', handler);
+  }
+
+  onDislike(handler: () => void): void {
+    this.dislikeBtn.addEventListener('click', handler);
+  }
+
+  onCollect(handler: () => void): void {
+    this.collectBtn.addEventListener('click', handler);
   }
 
   // ── Popup ────────────────────────────────────────────────────────────────
@@ -65,9 +91,9 @@ export class Ui {
     this.popupAmount.textContent   = `+${cashoutAmount.toFixed(2)} FUN`;
     this.popupAmount.className     = 'win';
     this.popupAmount.style.display = 'block';
-    this.popupSubtitle.textContent = 'Safe feed. Take the FUN and keep scrolling.';
+    this.popupSubtitle.textContent = 'You cashed out. Keep scrolling.';
     this.popupBalance.textContent  = `Balance: ${balance.toFixed(2)} FUN`;
-    this.popupBtn.textContent      = 'COLLECT';
+    this.popupBtn.textContent      = 'PLAY AGAIN';
     this.popupBtn.className        = 'popup-btn success';
     this._showPopup();
   }
@@ -77,7 +103,7 @@ export class Ui {
     this.popupAmount.textContent   = `-${bet.toFixed(2)} FUN`;
     this.popupAmount.className     = 'lose';
     this.popupAmount.style.display = 'block';
-    this.popupSubtitle.textContent = 'An agent caught you. Be careful next time.';
+    this.popupSubtitle.textContent = 'That LIKE bombed. Be more careful.';
     this.popupBalance.textContent  = `Balance: ${balance.toFixed(2)} FUN`;
     this.popupBtn.textContent      = balance >= bet ? 'TRY AGAIN' : 'REFILL & PLAY';
     this.popupBtn.className        = 'popup-btn danger';
@@ -106,7 +132,7 @@ export class Ui {
     this.popup.classList.remove('hidden');
   }
 
-  // ── Flash (bomb) ──────────────────────────────────────────────────────────
+  // ── Flash (lose effect) ───────────────────────────────────────────────────
 
   flashRed(durationMs = 500): void {
     this.flashEl.style.transition = 'none';
