@@ -195,6 +195,8 @@ export class Game {
   // ── Round start ────────────────────────────────────────────────────────────
 
   private async beginRound(): Promise<void> {
+    this.resetRng(); // fresh seed per round (uses typed seed if present, else random)
+
     if (!this.economy.canStartRound) {
       this.economy.balance = STARTING_BALANCE;
       this.ui.setBalance(this.economy.balance);
@@ -278,10 +280,9 @@ export class Game {
       this.economy.balance = STARTING_BALANCE;
       this.ui.setBalance(this.economy.balance);
     }
-    // Clear seed so each Play Again generates a fresh random seed
-    // (user must retype a seed to reuse it deliberately)
+    // Clear seed so the next round is random by default
+    // (player can retype a seed before swiping to reproduce a specific round)
     this.ui.seedInput.value = '';
-    this.resetRng();
     this.setState('intro');
   }
 
