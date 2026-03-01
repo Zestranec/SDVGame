@@ -75,11 +75,11 @@ export const VIRAL_BOOST_CARD: CardDef = {
   id:                'viral_boost',
   type:              'viral_boost',
   emoji:             '⚡',
-  headline:          'VIRAL BOOST!\n×2 MULTIPLIER',
+  headline:          'VIRAL BOOST!\n×10 MULTIPLIER',
   subline:           "You went viral! Everyone's watching.",
   colors:            ['#1a1100', '#2e1f00'],
   animType:          'viral_boost_anim',
-  multiplierOverride: 2.0,
+  multiplierOverride: 10.0, // must match VIRAL_BOOST_MULT in Economy.ts
   // videoUrl injected per-draw by ReelEngine
 };
 

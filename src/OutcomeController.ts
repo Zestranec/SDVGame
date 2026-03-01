@@ -3,17 +3,24 @@ import type { Rng } from './Rng';
 export type DrawResult = 'bomb' | 'viral_boost' | 'safe';
 
 /**
- * Controls card outcome probabilities to target RTP ≈ 95%.
+ * Controls card outcome probabilities.
  *
- * Per-draw math:
- *   P(bomb)        = 0.15
- *   P(viral_boost) = 0.85 × 0.0196 ≈ 1.666 %
- *   P(safe)        = 0.85 × 0.9804 ≈ 83.33 %
+ * DESIGN — depth-invariant RTP:
  *
- * E[multiplier | not bomb] = 0.0196 × 2.0 + 0.9804 × 1.1 = 1.1176
+ *   BOMB_PROB = 0.15
  *
- * RTP for optimal play (cash out after 1 safe card):
- *   RTP = P(not bomb) × E[mult] = 0.85 × 1.1176 ≈ 95.0 %
+ *   E[mult | safe] must equal 1 / (1 − BOMB_PROB) = 1 / 0.85 ≈ 1.1765
+ *   so that each swipe's survival risk is exactly compensated.
+ *
+ *   With q = VIRAL_BOOST_PROB_GIVEN_SAFE = 0.003 and VIRAL_BOOST_MULT = 10.0:
+ *     E[mult | safe] = q × 10.0 + (1−q) × NORMAL_SAFE_MULT
+ *                    = 0.003 × 10 + 0.997 × 1.1499
+ *                    ≈ 0.03 + 1.1465  =  1.1765  ✓
+ *
+ *   RTP = HOUSE_EDGE (0.95) for any cashout depth, because:
+ *     • roundValue starts at bet × HOUSE_EDGE (house edge applied once at round start)
+ *     • (1 − BOMB_PROB) × E[mult | safe] = 0.85 × 1.1765 ≈ 1.0
+ *     • So each swipe preserves expected value; depth of play doesn't change EV.
  *
  * All probabilities are centralised here. Do NOT hardcode them elsewhere.
  */
@@ -23,9 +30,10 @@ export class OutcomeController {
 
   /**
    * Conditional probability of viral_boost given the draw is not a bomb.
-   * Chosen so E[mult | not bomb] ≈ 1.1176 which keeps RTP at 95 %.
+   * Low enough to be a genuine surprise; high enough to occur a few times
+   * per session (≈ 1 in 335 non-bomb draws).
    */
-  static readonly VIRAL_BOOST_PROB_GIVEN_SAFE = 0.0196;
+  static readonly VIRAL_BOOST_PROB_GIVEN_SAFE = 0.003;
 
   private readonly rng: Rng;
 
