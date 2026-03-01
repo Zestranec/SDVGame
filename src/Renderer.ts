@@ -1112,7 +1112,8 @@ export class Renderer {
     const objs = buildCard(this.width, this.height, def, opts);
     this.cardLayer.addChild(objs.container);
     this.currentObjs = objs;
-    this.currentAnimFn = objs.animFn ?? setupAnim(def.animType, objs, this.width, this.height);
+    // Skip text-card VFX overlays for video cards — the video is the content.
+    this.currentAnimFn = objs.animFn ?? (objs.vcTex ? null : setupAnim(def.animType, objs, this.width, this.height));
     this.registerCard(objs);
   }
 
@@ -1147,7 +1148,8 @@ export class Renderer {
           this.app.ticker.remove(tick);
           if (outgoing) this.unregisterAndDestroy(outgoing);
           this.currentObjs = incoming;
-          this.currentAnimFn = incoming.animFn ?? setupAnim(def.animType, incoming, w, h);
+          // Skip text-card VFX overlays for video cards — the video is the content.
+          this.currentAnimFn = incoming.animFn ?? (incoming.vcTex ? null : setupAnim(def.animType, incoming, w, h));
           this.isTransitioning = false;
           resolve();
         }
