@@ -1,6 +1,6 @@
 import type { Rng } from './Rng';
 import { OutcomeController } from './OutcomeController';
-import { UNKNOWN_CALL_CARD, VIRAL_BOOST_CARD, type CardDef } from './Card';
+import { BOMB_CARD, VIRAL_BOOST_CARD, type CardDef } from './Card';
 import { SAFE_CARDS_CONFIG } from './config/safeCards';
 import { CardStyleController } from './CardStyleController';
 
@@ -26,7 +26,7 @@ export class ReelEngine {
   /** Draw and return the next card. Safe to call multiple times per round. */
   nextCard(): CardDef {
     const result = this.outcomeCtrl.drawCard();
-    if (result === 'bomb')        return UNKNOWN_CALL_CARD;
+    if (result === 'bomb')        return BOMB_CARD;
     if (result === 'viral_boost') return VIRAL_BOOST_CARD;
 
     // Pick a safe card from the 100-card pool using the shared RNG

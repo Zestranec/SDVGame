@@ -264,7 +264,7 @@ function buildVideoCard(w: number, h: number, def: CardDef): CardObjects {
   container.addChild(animLayer);
 
   // Invisible dummy Text satisfies CardObjects interface and gives animation
-  // functions (unknown_call, viral_boost_anim) a valid position anchor.
+  // functions (viral_boost_anim) a valid position anchor.
   const dummy = new PIXI.Text('', { fontSize: 1 });
   dummy.visible = false;
   dummy.x = w / 2;
@@ -295,12 +295,6 @@ type Cleanup = () => void;
 function setupAnim(type: CardAnimType, objs: CardObjects, w: number, h: number): AnimFn {
   const { emoji, headline, animLayer } = objs;
   let t = 0;
-
-  // Video safe cards: emoji/headline are null; only the two overlay anims
-  // (unknown_call, viral_boost_anim) are exempt — they draw on animLayer.
-  if (!emoji && type !== 'unknown_call' && type !== 'viral_boost_anim') {
-    return () => {};
-  }
 
   switch (type) {
     // ── 1. Bounce (Productivity Guru) ────────────────────────────────────────
@@ -665,63 +659,6 @@ function setupAnim(type: CardAnimType, objs: CardObjects, w: number, h: number):
           emoji.scale.set(Math.max(0, 1 - easeOutCubic(Math.min(popT, 1))));
           if (popT >= 1) { phase = 'wait'; waitT = 0; popT = 0; }
         }
-      };
-    }
-
-    // ── Unknown Call (danger card) ────────────────────────────────────────────
-    case 'unknown_call': {
-      const cx = w / 2;
-      // Use emoji centre if present (text card); fall back to fixed position for video card
-      const cy = emoji ? emoji.y : h * 0.35;
-
-      // Pulsing red rings
-      const ringG = new PIXI.Graphics();
-      animLayer.addChild(ringG);
-
-      // "INCOMING CALL" label above the headline area
-      const badge = new PIXI.Text('INCOMING CALL', new PIXI.TextStyle({
-        fontFamily:    TEXT_FONT,
-        fontWeight:    '700',
-        fontSize:      13,
-        fill:          0xff4444,
-        letterSpacing: 2,
-      }));
-      badge.anchor.set(0.5);
-      badge.x = cx;
-      badge.y = h * 0.43;
-      animLayer.addChild(badge);
-
-      // Decorative answer / decline circles (non-interactive)
-      const btnY     = h * 0.79;
-      const answerG  = new PIXI.Graphics();
-      answerG.beginFill(0x22cc55); answerG.drawCircle(cx - 52, btnY, 26); answerG.endFill();
-      const declineG = new PIXI.Graphics();
-      declineG.beginFill(0xff3333); declineG.drawCircle(cx + 52, btnY, 26); declineG.endFill();
-      const answerT  = new PIXI.Text('📞', { fontFamily: EMOJI_FONT, fontSize: 20 });
-      answerT.anchor.set(0.5);  answerT.x  = cx - 52; answerT.y  = btnY;
-      const declineT = new PIXI.Text('📵', { fontFamily: EMOJI_FONT, fontSize: 20 });
-      declineT.anchor.set(0.5); declineT.x = cx + 52; declineT.y = btnY;
-      animLayer.addChild(answerG, declineG, answerT, declineT);
-
-      return (dt) => {
-        t += dt * 0.016;
-        // Expanding pulse rings
-        ringG.clear();
-        for (let r = 0; r < 2; r++) {
-          const phase  = (t * 1.8 + r * 0.7) % (Math.PI * 2);
-          const radius = 55 + Math.abs(Math.sin(phase)) * 45;
-          const alpha  = 0.45 - Math.abs(Math.sin(phase)) * 0.35;
-          ringG.lineStyle(2.5, 0xff3333, alpha);
-          ringG.drawCircle(cx, cy, radius);
-        }
-        // Subtle shake (text card only; video card has no emoji sprite)
-        if (emoji) {
-          emoji.x = cx + Math.sin(t * 18) * 3.5;
-          emoji.y = cy + Math.cos(t * 14) * 2.5;
-        }
-        // Buttons fade in
-        const btnAlpha = Math.min(1, t * 1.5);
-        answerG.alpha = declineG.alpha = answerT.alpha = declineT.alpha = btnAlpha;
       };
     }
 

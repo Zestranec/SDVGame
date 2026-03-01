@@ -63,7 +63,7 @@ export class Ui {
   showPopupIntro(): void {
     this.popupEmoji.textContent    = '🎰';
     this.popupTitle.textContent    = 'SDVGame';
-    this.popupSubtitle.textContent = 'Swipe up through viral content.\nDon\'t answer the unknown call!';
+    this.popupSubtitle.textContent = 'Swipe up through viral content.\nCash out before it blows up!';
     this.popupAmount.style.display = 'none';
     this.popupBtn.textContent      = '▶ Let\'s Play';
     this.popupBtn.className        = 'popup-btn primary';
@@ -83,9 +83,9 @@ export class Ui {
   }
 
   showPopupLose(balance: number): void {
-    this.popupEmoji.textContent    = '📵';
-    this.popupTitle.textContent    = 'Unknown Number!';
-    this.popupSubtitle.textContent = `You answered it. Big mistake.\nBalance: ${balance.toFixed(2)} FUN`;
+    this.popupEmoji.textContent    = '💥';
+    this.popupTitle.textContent    = 'Busted!';
+    this.popupSubtitle.textContent = `The bomb dropped. Round over.\nBalance: ${balance.toFixed(2)} FUN`;
     this.popupAmount.textContent   = '-10.00 FUN';
     this.popupAmount.className     = 'lose';
     this.popupAmount.style.display = 'block';

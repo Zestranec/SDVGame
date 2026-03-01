@@ -4,7 +4,8 @@
  * instead of text/emoji. Change URLs here only.
  */
 
-export const BOMB_VIDEO_URL = 'https://pub-4a4885e8e4e64fb483dce40965673cff.r2.dev/bomb.mp4';
+export const BOMB_VIDEO_URL         = 'https://pub-4a4885e8e4e64fb483dce40965673cff.r2.dev/bomb.mp4';
+export const VIRAL_BOOST_VIDEO_URL  = 'https://pub-4a4885e8e4e64fb483dce40965673cff.r2.dev/buff.mp4';
 
 export const SAFE_VIDEO_URLS = [
   'https://pub-4a4885e8e4e64fb483dce40965673cff.r2.dev/safe_1.mp4',
