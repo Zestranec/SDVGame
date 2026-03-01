@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import * as PIXI from 'pixi.js';
 import type { CardDef, CardAnimType } from './Card';
 
@@ -27,7 +28,8 @@ function lerp(a: number, b: number, t: number): number {
 interface CardObjects {
   container: PIXI.Container;
   bg: PIXI.Sprite;
-  emoji: PIXI.Text;
+  /** Either a PIXI.Text (emoji) or a PIXI.Sprite (image) — both extend Container. */
+  emoji: PIXI.Container;
   headline: PIXI.Text;
   subline: PIXI.Text;
   animLayer: PIXI.Container;
@@ -73,16 +75,36 @@ function buildTextCard(w: number, h: number, def: CardDef): CardObjects {
   }
   container.addChild(dots);
 
-  // Emoji (large, centered upper portion)
-  const emojiFontSize = Math.round(Math.min(w, h) * 0.18);
-  const emoji = new PIXI.Text(def.emoji, {
-    fontFamily: EMOJI_FONT,
-    fontSize: emojiFontSize,
-  });
-  emoji.anchor.set(0.5);
-  emoji.x = w / 2;
-  emoji.y = h * 0.30;
-  container.addChild(emoji);
+  // Emoji or image (large, centered upper portion)
+  let emoji: PIXI.Container;
+  if (def.imagePath) {
+    const imgUrl = new URL(
+      `${import.meta.env.BASE_URL}${def.imagePath}`,
+      window.location.href,
+    ).toString();
+    const tex = PIXI.Texture.from(imgUrl);
+    const img = new PIXI.Sprite(tex);
+    img.anchor.set(0.5);
+    const maxW = Math.min(w * 0.62, 250);
+    const ar   = tex.height > 0 ? tex.width / tex.height : 1;
+    img.width  = maxW;
+    img.height = maxW / ar;
+    img.x = w / 2;
+    img.y = h * 0.28;
+    container.addChild(img);
+    emoji = img;
+  } else {
+    const emojiFontSize = Math.round(Math.min(w, h) * 0.18);
+    const emojiText = new PIXI.Text(def.emoji, {
+      fontFamily: EMOJI_FONT,
+      fontSize: emojiFontSize,
+    });
+    emojiText.anchor.set(0.5);
+    emojiText.x = w / 2;
+    emojiText.y = h * 0.30;
+    container.addChild(emojiText);
+    emoji = emojiText;
+  }
 
   // Headline
   const headlineFontSize = Math.round(Math.min(w * 0.068, 26));

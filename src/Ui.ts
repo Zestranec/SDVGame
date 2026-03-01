@@ -75,7 +75,7 @@ export class Ui {
   showPopupLose(balance: number): void {
     this.popupEmoji.textContent    = '💥';
     this.popupTitle.textContent    = 'Busted!';
-    this.popupSubtitle.textContent = `The bomb dropped. Round over.\nBalance: ${balance.toFixed(2)} FUN`;
+    this.popupSubtitle.textContent = `An agent caught you. Be more careful next time.\nBalance: ${balance.toFixed(2)} FUN`;
     this.popupAmount.textContent   = '-10.00 FUN';
     this.popupAmount.className     = 'lose';
     this.popupAmount.style.display = 'block';

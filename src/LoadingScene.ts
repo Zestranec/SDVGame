@@ -15,6 +15,12 @@ const LOGO_URL = new URL(
   window.location.href,
 ).toString();
 
+/** Exported so Renderer can pre-warm PIXI.Texture.from() with the same URL key. */
+export const CAT_RULES_URL = new URL(
+  `${import.meta.env.BASE_URL}assets/loading/Cat_rules.png`,
+  window.location.href,
+).toString();
+
 // ── LoadingScene ──────────────────────────────────────────────────────────────
 
 /**
@@ -59,20 +65,23 @@ export class LoadingScene {
   // ── Public API ─────────────────────────────────────────────────────────────
 
   /**
-   * Load the logo texture.
+   * Load the logo texture and pre-cache the intro card image.
    * Always resolves — loading screen continues without logo on failure.
    */
   async loadAssets(): Promise<void> {
-    try {
-      const texture = await PIXI.Assets.load<PIXI.Texture>(LOGO_URL);
-      const sprite  = new PIXI.Sprite(texture);
+    const [logoResult] = await Promise.allSettled([
+      PIXI.Assets.load<PIXI.Texture>(LOGO_URL),
+      // Pre-cache Cat_rules so buildTextCard can use PIXI.Texture.from() synchronously
+      PIXI.Assets.load<PIXI.Texture>(CAT_RULES_URL),
+    ]);
+
+    if (logoResult.status === 'fulfilled') {
+      const sprite = new PIXI.Sprite(logoResult.value);
       sprite.anchor.set(0.5);
       this.logo = sprite;
       // Insert at index 1 → above bg, below bar elements
       this.container.addChildAt(sprite, 1);
       this._layout();
-    } catch {
-      // No logo — bar still shows fine
     }
   }
 

@@ -49,6 +49,12 @@ export interface CardDef {
    * instead of the emoji/headline/subline text layout.
    */
   videoUrl?: string;
+  /**
+   * When present, renders a PIXI.Sprite image in place of the emoji text.
+   * Path is relative to the Vite base URL (e.g. 'assets/loading/Cat_rules.png').
+   * The image must be pre-loaded by LoadingScene before buildTextCard runs.
+   */
+  imagePath?: string;
 }
 
 // ── BOMB CARD ─────────────────────────────────────────────────────────────────
@@ -81,11 +87,12 @@ export const VIRAL_BOOST_CARD: CardDef = {
 // ── Intro card ────────────────────────────────────────────────────────────────
 
 export const INTRO_CARD: CardDef = {
-  id:       'intro',
-  type:     'intro',
-  emoji:    '📲',
-  headline: 'SWIPE TO BEGIN',
-  subline:  'Swipe cost: 10 FUN\nCash out before it blows up!',
-  colors:   ['#0d0d2b', '#1a1a4a'],
-  animType: 'intro',
+  id:        'intro',
+  type:      'intro',
+  emoji:     '',
+  headline:  'SWIPE TO BEGIN',
+  subline:   "Welcome to positive doomscrolling. As long as your feed is full of cute critters, you're totally safe. But beware: real-world agents lurk here too—if an agent shows up in your feed, you're busted. Scroll responsibly.",
+  colors:    ['#0d0d2b', '#1a1a4a'],
+  animType:  'intro',
+  imagePath: 'assets/loading/Cat_rules.png',
 };
