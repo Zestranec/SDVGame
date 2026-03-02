@@ -593,7 +593,7 @@ class VideoCanvasTexture {
 
 // ── Video card (full-screen looping video via canvas texture) ──────────────────
 
-function buildVideoCard(w: number, h: number, def: CardDef, primedVcTex?: VideoCanvasTexture): CardObjects {
+function buildVideoCard(w: number, h: number, def: CardDef, primedVcTex?: VideoCanvasTexture, autoplayUnlocked = false): CardObjects {
   const container = new PIXI.Container();
 
   // Clip mask — prevents sprite overflow during slide transition
@@ -608,11 +608,13 @@ function buildVideoCard(w: number, h: number, def: CardDef, primedVcTex?: VideoC
   const vcTex = primedVcTex ?? new VideoCanvasTexture(def.videoUrl!, w, h);
   container.addChild(vcTex.sprite);
 
-  // Autoplay attempt + tap-to-play fallback for blocked autoplay (iOS/Safari).
   let tapShown = false;
   let gestureHandler: (() => void) | null = null;
 
   const showTapOverlay = () => {
+    // Never show before the first user gesture — suppresses spurious overlays during
+    // app init or intro render where no play was ever attempted.
+    if (!autoplayUnlocked) return;
     if (container.destroyed || tapShown) return;
     tapShown = true;
     if (import.meta.env.DEV) console.warn('[VideoCard] autoplay blocked — showing tap overlay');
@@ -638,13 +640,24 @@ function buildVideoCard(w: number, h: number, def: CardDef, primedVcTex?: VideoC
     document.addEventListener('touchstart',  gestureHandler, { passive: true });
   };
 
-  const attemptPlay = () => {
-    if (container.destroyed) return;
-    vcTex.tryPlay().catch(showTapOverlay);
-  };
+  // Playback strategy:
+  //   primed  → tryPlay() was called in gesture context by primeCard(); just watch for failure.
+  //             Do NOT re-call tryPlay() via a loadeddata listener — that would fire outside gesture.
+  //   unprimed + unlocked → gesture happened earlier; attempt normally with loadeddata retry.
+  //   unprimed + locked → before first gesture; skip entirely to avoid spurious overlay.
+  let cleanupLoadedData: (() => void) | null = null;
 
-  attemptPlay(); // try immediately
-  vcTex.video.addEventListener('loadeddata', attemptPlay, { once: true }); // retry once data arrives
+  if (primedVcTex) {
+    vcTex.tryPlay().catch(showTapOverlay); // idempotent: no-op if playing, tap overlay if failed
+  } else if (autoplayUnlocked) {
+    const attemptPlay = () => {
+      if (container.destroyed) return;
+      vcTex.tryPlay().catch(showTapOverlay);
+    };
+    attemptPlay();
+    vcTex.video.addEventListener('loadeddata', attemptPlay, { once: true });
+    cleanupLoadedData = () => vcTex.video.removeEventListener('loadeddata', attemptPlay);
+  }
 
   // Animation overlay layer (rings/stars/badges for bomb & viral_boost)
   const animLayer = new PIXI.Container();
@@ -659,7 +672,7 @@ function buildVideoCard(w: number, h: number, def: CardDef, primedVcTex?: VideoC
   container.addChild(dummy);
 
   const cleanup = () => {
-    vcTex.video.removeEventListener('loadeddata', attemptPlay);
+    cleanupLoadedData?.();
     if (gestureHandler) {
       document.removeEventListener('pointerdown', gestureHandler);
       document.removeEventListener('touchstart',  gestureHandler);
@@ -672,9 +685,9 @@ function buildVideoCard(w: number, h: number, def: CardDef, primedVcTex?: VideoC
 
 // ── Dispatcher: text or video based on def.videoUrl ───────────────────────────
 
-function buildCard(w: number, h: number, def: CardDef, opts?: { betOpts?: BetSelectorOpts }, primedVcTex?: VideoCanvasTexture): CardObjects {
+function buildCard(w: number, h: number, def: CardDef, opts?: { betOpts?: BetSelectorOpts }, primedVcTex?: VideoCanvasTexture, autoplayUnlocked = false): CardObjects {
   if (def.type === 'intro') return buildIntroCard(w, h, def, opts?.betOpts);
-  return def.videoUrl ? buildVideoCard(w, h, def, primedVcTex) : buildTextCard(w, h, def);
+  return def.videoUrl ? buildVideoCard(w, h, def, primedVcTex, autoplayUnlocked) : buildTextCard(w, h, def);
 }
 
 // ── Cleanup helper (pauses video before PIXI destroy) ─────────────────────────
@@ -1128,6 +1141,8 @@ export class Renderer {
   private readonly activeVcTextures = new Set<VideoCanvasTexture>();
   /** Pre-built vcTex created synchronously inside a user gesture, before the transition animation. */
   private _primedVcTex: VideoCanvasTexture | null = null;
+  /** True after the first primeCard() call — gates tap-to-play overlay so it never shows before first gesture. */
+  private autoplayUnlocked = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.app = new PIXI.Application({
@@ -1164,6 +1179,7 @@ export class Renderer {
    */
   primeCard(def: CardDef): void {
     if (!def.videoUrl) return;
+    this.autoplayUnlocked = true; // first gesture has occurred
     // Clean up any unused prime from a previous (unreachable) call.
     if (this._primedVcTex) {
       this.activeVcTextures.delete(this._primedVcTex);
@@ -1209,7 +1225,7 @@ export class Renderer {
     const primedVcTex = this._primedVcTex;
     this._primedVcTex = null;
 
-    const incoming = buildCard(w, h, def, opts, primedVcTex ?? undefined);
+    const incoming = buildCard(w, h, def, opts, primedVcTex ?? undefined, this.autoplayUnlocked);
     this.registerCard(incoming); // no-op for primed vcTex (already in activeVcTextures)
     incoming.container.y = h;
     incoming.container.scale.set(1.03);
