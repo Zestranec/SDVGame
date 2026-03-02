@@ -254,35 +254,35 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
   gameTitle.y = 90; // fixed: clears HTML HUD (≈60px) + notch safe area
   container.addChild(gameTitle);
 
-  // 4. Caption panel (left-aligned, TikTok style) ──────────────────────────────
-  const padX   = Math.round(w * 0.05);
+  // 4. Caption panel (centered) ─────────────────────────────────────────────────
   const panelW = Math.min(520, Math.round(w * 0.86));
   const PAD    = 20; // inner padding (px)
 
-  // Title row: bold, larger
+  // Title row: bold, centered
   const titleFS = Math.round(Math.min(w * 0.066, 26));
   const titleText = new PIXI.Text(def.headline, new PIXI.TextStyle({
     fontFamily:         TEXT_FONT,
     fontWeight:         '800',
     fontSize:           titleFS,
     fill:               0xffffff,
-    align:              'left',
+    align:              'center',
     letterSpacing:      0.5,
     dropShadow:         true,
     dropShadowColor:    0x000000,
     dropShadowBlur:     6,
     dropShadowDistance: 1,
   }));
-  titleText.x = PAD;
+  titleText.anchor.set(0.5, 0);
+  titleText.x = panelW / 2;
   titleText.y = PAD;
 
-  // Body rows: regular weight, word-wrapped, left-aligned
+  // Body rows: regular weight, word-wrapped, centered
   const bodyFS = Math.round(Math.min(w * 0.058, 22));
   const bodyText = new PIXI.Text(def.subline, new PIXI.TextStyle({
     fontFamily:         TEXT_FONT,
     fontSize:           bodyFS,
     fill:               0xffffff,
-    align:              'left',
+    align:              'center',
     wordWrap:           true,
     wordWrapWidth:      panelW - PAD * 2,
     leading:            Math.round(bodyFS * 0.24),
@@ -291,7 +291,8 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
     dropShadowBlur:     4,
     dropShadowDistance: 0,
   }));
-  bodyText.x = PAD;
+  bodyText.anchor.set(0.5, 0);
+  bodyText.x = panelW / 2;
   bodyText.y = titleText.y + Math.ceil(titleText.height) + 8;
 
   const panelH = Math.ceil(bodyText.y + bodyText.height) + PAD;
@@ -303,9 +304,28 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
   const captionCont = new PIXI.Container();
   captionCont.addChild(panelG, titleText, bodyText);
   const ctaAreaH = betOpts ? 160 : 110;
-  captionCont.x = padX;
+  captionCont.x = (w - panelW) / 2;
   captionCont.y = h - ctaAreaH - panelH - 16;
   container.addChild(captionCont);
+
+  // "Win Up To ×500" — punchy gold highlight above the caption panel
+  const winHighlightFS = Math.round(Math.min(w * 0.072, 28));
+  const winHighlight = new PIXI.Text('Win Up To ×500', new PIXI.TextStyle({
+    fontFamily:         TEXT_FONT,
+    fontWeight:         '900',
+    fontSize:           winHighlightFS,
+    fill:               0xffd700,
+    align:              'center',
+    letterSpacing:      0.3,
+    dropShadow:         true,
+    dropShadowColor:    0x000000,
+    dropShadowBlur:     12,
+    dropShadowDistance: 0,
+  }));
+  winHighlight.anchor.set(0.5);
+  winHighlight.x = w / 2;
+  winHighlight.y = captionCont.y - Math.ceil(winHighlight.height) - 10;
+  container.addChild(winHighlight);
 
   // 4. Swipe CTA ────────────────────────────────────────────────────────────────
   const ctaLayer = new PIXI.Container();
@@ -453,8 +473,10 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
     chev2.x = nw / 2;
     chev1BaseY = betOpts ? nh - 108 : nh - 64;
     chev2BaseY = betOpts ? nh - 130 : nh - 86;
-    captionCont.x = Math.round(nw * 0.05);
+    captionCont.x = (nw - panelW) / 2;
     captionCont.y = nh - ctaAreaH - panelH - 16;
+    winHighlight.x = nw / 2;
+    winHighlight.y = captionCont.y - Math.ceil(winHighlight.height) - 10;
     if (betCont) {
       betCont.x = (nw - SEL_W) / 2;
       betCont.y = nh - 76;
