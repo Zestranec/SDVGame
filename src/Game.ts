@@ -207,6 +207,7 @@ export class Game {
     this.setState('transitioning');
 
     const firstCard = this.reel.nextCard();
+    this.renderer.primeCard(firstCard); // call play() now, in gesture context, before any await
     await this.renderer.transitionTo(firstCard);
 
     if (firstCard.type === 'bomb') {
@@ -229,6 +230,7 @@ export class Game {
     this.setState('transitioning');
 
     const card = this.reel.nextCard();
+    this.renderer.primeCard(card); // call play() now, in gesture context, before any await
     await this.renderer.transitionTo(card);
 
     if (card.type === 'bomb') {

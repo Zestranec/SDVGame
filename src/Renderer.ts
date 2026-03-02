@@ -593,7 +593,7 @@ class VideoCanvasTexture {
 
 // ── Video card (full-screen looping video via canvas texture) ──────────────────
 
-function buildVideoCard(w: number, h: number, def: CardDef): CardObjects {
+function buildVideoCard(w: number, h: number, def: CardDef, primedVcTex?: VideoCanvasTexture): CardObjects {
   const container = new PIXI.Container();
 
   // Clip mask — prevents sprite overflow during slide transition
@@ -604,8 +604,8 @@ function buildVideoCard(w: number, h: number, def: CardDef): CardObjects {
   container.addChild(clipMask);
   container.mask = clipMask;
 
-  // Canvas-backed video texture (no PIXI VideoResource)
-  const vcTex = new VideoCanvasTexture(def.videoUrl!, w, h);
+  // Reuse pre-built vcTex if available (tryPlay already called in gesture context).
+  const vcTex = primedVcTex ?? new VideoCanvasTexture(def.videoUrl!, w, h);
   container.addChild(vcTex.sprite);
 
   // Autoplay attempt + tap-to-play fallback for blocked autoplay (iOS/Safari).
@@ -672,9 +672,9 @@ function buildVideoCard(w: number, h: number, def: CardDef): CardObjects {
 
 // ── Dispatcher: text or video based on def.videoUrl ───────────────────────────
 
-function buildCard(w: number, h: number, def: CardDef, opts?: { betOpts?: BetSelectorOpts }): CardObjects {
+function buildCard(w: number, h: number, def: CardDef, opts?: { betOpts?: BetSelectorOpts }, primedVcTex?: VideoCanvasTexture): CardObjects {
   if (def.type === 'intro') return buildIntroCard(w, h, def, opts?.betOpts);
-  return def.videoUrl ? buildVideoCard(w, h, def) : buildTextCard(w, h, def);
+  return def.videoUrl ? buildVideoCard(w, h, def, primedVcTex) : buildTextCard(w, h, def);
 }
 
 // ── Cleanup helper (pauses video before PIXI destroy) ─────────────────────────
@@ -688,7 +688,6 @@ function destroyCard(objs: CardObjects): void {
 // ── Animation setups ──────────────────────────────────────────────────────────
 
 type AnimFn = (delta: number) => void;
-type Cleanup = () => void;
 
 function setupAnim(type: CardAnimType, objs: CardObjects, w: number, h: number): AnimFn {
   const { emoji, headline, animLayer } = objs;
@@ -1127,6 +1126,8 @@ export class Renderer {
   private isTransitioning = false;
   /** All live VideoCanvasTexture instances — ticked every frame. */
   private readonly activeVcTextures = new Set<VideoCanvasTexture>();
+  /** Pre-built vcTex created synchronously inside a user gesture, before the transition animation. */
+  private _primedVcTex: VideoCanvasTexture | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.app = new PIXI.Application({
@@ -1152,6 +1153,26 @@ export class Renderer {
 
   get width(): number { return this.app.screen.width; }
   get height(): number { return this.app.screen.height; }
+
+  /**
+   * Pre-build a VideoCanvasTexture and call tryPlay() NOW, while the caller is
+   * still inside a synchronous user-gesture handler (before any `await`).
+   * The primed vcTex is consumed by the next transitionTo() call so the already-
+   * playing video is reused instead of creating a new element.
+   *
+   * Call this for every card, right before `await renderer.transitionTo(card)`.
+   */
+  primeCard(def: CardDef): void {
+    if (!def.videoUrl) return;
+    // Clean up any unused prime from a previous (unreachable) call.
+    if (this._primedVcTex) {
+      this.activeVcTextures.delete(this._primedVcTex);
+      this._primedVcTex.destroy();
+    }
+    this._primedVcTex = new VideoCanvasTexture(def.videoUrl, this.width, this.height);
+    this.activeVcTextures.add(this._primedVcTex); // tick immediately (fills first frame)
+    this._primedVcTex.tryPlay().catch(() => {}); // errors handled by buildVideoCard's fallback
+  }
 
   /** Register a card's vcTex into the active set so the ticker drives it. */
   private registerCard(objs: CardObjects): void {
@@ -1184,8 +1205,12 @@ export class Renderer {
     const outgoing = this.currentObjs;
     this.currentAnimFn = null; // pause idle anim during transition
 
-    const incoming = buildCard(w, h, def, opts);
-    this.registerCard(incoming); // start ticking the new card immediately
+    // Consume any vcTex pre-built (and pre-played) synchronously in the gesture handler.
+    const primedVcTex = this._primedVcTex;
+    this._primedVcTex = null;
+
+    const incoming = buildCard(w, h, def, opts, primedVcTex ?? undefined);
+    this.registerCard(incoming); // no-op for primed vcTex (already in activeVcTextures)
     incoming.container.y = h;
     incoming.container.scale.set(1.03);
     this.cardLayer.addChild(incoming.container);
