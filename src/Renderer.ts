@@ -497,8 +497,8 @@ class VideoCanvasTexture {
   readonly sprite:  PIXI.Sprite;
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx:    CanvasRenderingContext2D;
-  private _destroyed     = false;
-  private _playAttempted = false;
+  private _destroyed    = false;
+  private _playPromise: Promise<void> | null = null;
 
   constructor(url: string, cardW: number, cardH: number) {
     // Offscreen canvas sized to match the card's aspect ratio at ~360p.
@@ -528,20 +528,29 @@ class VideoCanvasTexture {
     this.video.muted       = true;
     this.video.loop        = true;
     this.video.playsInline = true;
-    this.video.setAttribute('playsinline', '');
+    this.video.autoplay    = true;
     this.video.preload     = 'auto';
-    this.video.src         = url;
+    this.video.setAttribute('playsinline', '');
+    this.video.setAttribute('muted',       '');
+    this.video.setAttribute('autoplay',    '');
+    this.video.src = url;
     this.video.load();
   }
 
   /**
-   * Attempt autoplay (once). Returns a Promise that rejects if blocked,
-   * so callers can show a tap-to-play affordance.
+   * Attempt autoplay. Idempotent — returns the in-flight promise if a play()
+   * call is already pending, resolves immediately if already playing.
+   * Rejects if the browser blocks autoplay (caller shows tap-to-play).
    */
   tryPlay(): Promise<void> {
-    if (this._playAttempted || this._destroyed) return Promise.resolve();
-    this._playAttempted = true;
-    return this.video.play();
+    if (this._destroyed)          return Promise.resolve();
+    if (!this.video.paused)       return Promise.resolve();
+    if (this._playPromise)        return this._playPromise;
+    this._playPromise = this.video.play().catch(err => {
+      this._playPromise = null; // allow retry after user gesture
+      throw err;
+    });
+    return this._playPromise;
   }
 
   /**
@@ -599,9 +608,14 @@ function buildVideoCard(w: number, h: number, def: CardDef): CardObjects {
   const vcTex = new VideoCanvasTexture(def.videoUrl!, w, h);
   container.addChild(vcTex.sprite);
 
-  // Attempt autoplay; show tap hint if blocked
-  vcTex.tryPlay().catch(() => {
-    if (container.destroyed) return;
+  // Autoplay attempt + tap-to-play fallback for blocked autoplay (iOS/Safari).
+  let tapShown = false;
+  let gestureHandler: (() => void) | null = null;
+
+  const showTapOverlay = () => {
+    if (container.destroyed || tapShown) return;
+    tapShown = true;
+    if (import.meta.env.DEV) console.warn('[VideoCard] autoplay blocked — showing tap overlay');
     const tap = new PIXI.Text('▶  Tap to play', new PIXI.TextStyle({
       fontFamily: TEXT_FONT, fontSize: 18, fontWeight: '700',
       fill: 0xffffff, dropShadow: true, dropShadowBlur: 10,
@@ -611,11 +625,26 @@ function buildVideoCard(w: number, h: number, def: CardDef): CardObjects {
     tap.x = w / 2;
     tap.y = h / 2;
     container.addChild(tap);
-    document.addEventListener('pointerdown', () => {
-      vcTex.video.play().catch(() => {});
-      if (!tap.destroyed) tap.destroy();
-    }, { once: true });
-  });
+
+    gestureHandler = () => {
+      vcTex.tryPlay()
+        .then(() => { if (!tap.destroyed) tap.destroy(); })
+        .catch(() => {});
+      document.removeEventListener('pointerdown', gestureHandler!);
+      document.removeEventListener('touchstart',  gestureHandler!);
+      gestureHandler = null;
+    };
+    document.addEventListener('pointerdown', gestureHandler, { passive: true });
+    document.addEventListener('touchstart',  gestureHandler, { passive: true });
+  };
+
+  const attemptPlay = () => {
+    if (container.destroyed) return;
+    vcTex.tryPlay().catch(showTapOverlay);
+  };
+
+  attemptPlay(); // try immediately
+  vcTex.video.addEventListener('loadeddata', attemptPlay, { once: true }); // retry once data arrives
 
   // Animation overlay layer (rings/stars/badges for bomb & viral_boost)
   const animLayer = new PIXI.Container();
@@ -629,7 +658,16 @@ function buildVideoCard(w: number, h: number, def: CardDef): CardObjects {
   dummy.y = h * 0.35;
   container.addChild(dummy);
 
-  return { container, bg: vcTex.sprite, emoji: dummy, headline: dummy, subline: dummy, animLayer, vcTex };
+  const cleanup = () => {
+    vcTex.video.removeEventListener('loadeddata', attemptPlay);
+    if (gestureHandler) {
+      document.removeEventListener('pointerdown', gestureHandler);
+      document.removeEventListener('touchstart',  gestureHandler);
+      gestureHandler = null;
+    }
+  };
+
+  return { container, bg: vcTex.sprite, emoji: dummy, headline: dummy, subline: dummy, animLayer, vcTex, cleanup };
 }
 
 // ── Dispatcher: text or video based on def.videoUrl ───────────────────────────
