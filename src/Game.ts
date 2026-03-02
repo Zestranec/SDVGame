@@ -18,7 +18,8 @@ class SwipeInput {
   private startY = 0;
   private startX = 0;
   private dragging = false;
-  private consumed = false;
+  /** Threshold reached in pointermove; actual callback fires on pointerup (valid iOS activation). */
+  private swipePending = false;
   private locked = false;
   private lastWheelTime = 0;
 
@@ -27,21 +28,33 @@ class SwipeInput {
       this.startY = e.clientY;
       this.startX = e.clientX;
       this.dragging = true;
-      this.consumed = false;
+      this.swipePending = false;
     }, { passive: true });
 
+    // pointermove: detect threshold only — do NOT call onSwipeUp here.
+    // pointermove is not a valid user-activation event on iOS Safari, so video.play()
+    // called from this handler will be rejected, causing "Tap to play" to appear.
     el.addEventListener('pointermove', (e) => {
-      if (!this.dragging || this.consumed || this.locked) return;
+      if (!this.dragging || this.swipePending || this.locked) return;
       const dy = this.startY - e.clientY;
       const dx = Math.abs(e.clientX - this.startX);
       if (dy > 70 && dx < dy * 0.75) {
-        this.consumed = true;
-        onSwipeUp();
+        this.swipePending = true; // latch; fired on pointerup below
       }
     }, { passive: true });
 
-    el.addEventListener('pointerup',     () => { this.dragging = false; }, { passive: true });
-    el.addEventListener('pointercancel', () => { this.dragging = false; }, { passive: true });
+    // pointerup: valid user-activation event — iOS Safari allows video.play() here.
+    el.addEventListener('pointerup', () => {
+      const pending = this.swipePending;
+      this.dragging = false;
+      this.swipePending = false;
+      if (pending && !this.locked) onSwipeUp();
+    }, { passive: true });
+
+    el.addEventListener('pointercancel', () => {
+      this.dragging = false;
+      this.swipePending = false;
+    }, { passive: true });
 
     // Mouse wheel / trackpad  (deltaY > 0 = scroll down = "swipe up" in feed)
     el.addEventListener('wheel', (e) => {
