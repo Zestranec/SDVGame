@@ -1,0 +1,15 @@
+backend:
+  url: "http://localhost:4051/api"
+
+rng:
+  url: "http://localhost:4002/api"
+
+sessions:
+  demo-token:
+    balance: 1000
+    default_bet: 10
+    bet_limits: [10, 200]
+    freebets_limits:
+      0: [10, 10]
+      1: [20, 20]
+    rtp: 95
