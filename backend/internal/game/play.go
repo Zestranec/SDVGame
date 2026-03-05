@@ -31,8 +31,9 @@ type Req struct {
 	BetType string  `json:"bet_type"`
 }
 
-// PlayParams are the full params block sent by the runner.
+// PlayParams are the full params block sent by the runner/frontend.
 type PlayParams struct {
+	Token   string         `json:"token"`
 	Game    map[string]any `json:"game"`
 	Round   *Round         `json:"round"`
 	Req     Req            `json:"req"`
@@ -54,14 +55,16 @@ func (e *PlayError) GetCode() int  { return e.Code }
 // ── Play entry point ─────────────────────────────────────────────────────────
 
 // Play processes one runner call and returns a PlayResult or a PlayError.
-func Play(ctx context.Context, params PlayParams, rngURL string, godModeEnabled bool) (PlayResult, error) {
+// currencyCode is the ISO currency code for FinancePayout entries (e.g. "USD").
+// Resolved by the server handler from the session config; never hardcoded here.
+func Play(ctx context.Context, params PlayParams, rngURL string, godModeEnabled bool, currencyCode string) (PlayResult, error) {
 	switch params.Req.Action {
 	case "start":
-		return handleStart(ctx, params, rngURL, godModeEnabled)
+		return handleStart(ctx, params, rngURL, godModeEnabled, currencyCode)
 	case "swipe":
-		return handleSwipe(ctx, params, rngURL, godModeEnabled)
+		return handleSwipe(ctx, params, rngURL, godModeEnabled, currencyCode)
 	case "cashout":
-		return handleCashout(ctx, params)
+		return handleCashout(ctx, params, currencyCode)
 	default:
 		return PlayResult{}, &PlayError{Code: -32602, Message: fmt.Sprintf("unknown action: %q", params.Req.Action)}
 	}
@@ -69,7 +72,7 @@ func Play(ctx context.Context, params PlayParams, rngURL string, godModeEnabled 
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
-func handleStart(ctx context.Context, params PlayParams, rngURL string, godModeEnabled bool) (PlayResult, error) {
+func handleStart(ctx context.Context, params PlayParams, rngURL string, godModeEnabled bool, currencyCode string) (PlayResult, error) {
 	// Convert float bet from runner to integer cents (round-half-up).
 	betCents := int64(math.Round(params.Req.Bet * 100))
 	betType := params.Req.BetType
@@ -122,8 +125,7 @@ func handleStart(ctx context.Context, params PlayParams, rngURL string, godModeE
 	finance = append(finance, bettingRaw)
 
 	if final && round.MaxReached {
-		payoutRaw, _ := json.Marshal(FinancePayout{Type: "payout", AmountCents: round.AccCents, Currency: "FUN"})
-		finance = append(finance, payoutRaw)
+		finance = append(finance, payoutFinance(currencyCode, round.AccCents))
 	}
 
 	result := PlayResult{
@@ -139,7 +141,7 @@ func handleStart(ctx context.Context, params PlayParams, rngURL string, godModeE
 	return result, nil
 }
 
-func handleSwipe(ctx context.Context, params PlayParams, rngURL string, godModeEnabled bool) (PlayResult, error) {
+func handleSwipe(ctx context.Context, params PlayParams, rngURL string, godModeEnabled bool, currencyCode string) (PlayResult, error) {
 	if params.Round == nil {
 		return PlayResult{}, &PlayError{Code: -32602, Message: "round state is required for swipe"}
 	}
@@ -185,8 +187,7 @@ func handleSwipe(ctx context.Context, params PlayParams, rngURL string, godModeE
 	var finance []json.RawMessage
 
 	if final && round.MaxReached {
-		payoutRaw, _ := json.Marshal(FinancePayout{Type: "payout", AmountCents: round.AccCents, Currency: "FUN"})
-		finance = append(finance, payoutRaw)
+		finance = append(finance, payoutFinance(currencyCode, round.AccCents))
 	}
 
 	if finance == nil {
@@ -206,7 +207,7 @@ func handleSwipe(ctx context.Context, params PlayParams, rngURL string, godModeE
 	return result, nil
 }
 
-func handleCashout(ctx context.Context, params PlayParams) (PlayResult, error) {
+func handleCashout(ctx context.Context, params PlayParams, currencyCode string) (PlayResult, error) {
 	if params.Round == nil {
 		return PlayResult{}, &PlayError{Code: -32602, Message: "round state is required for cashout"}
 	}
@@ -227,8 +228,6 @@ func handleCashout(ctx context.Context, params PlayParams) (PlayResult, error) {
 	round.Alive = false
 	round.EndedBy = &endedBy
 
-	payoutRaw, _ := json.Marshal(FinancePayout{Type: "payout", AmountCents: round.AccCents, Currency: "FUN"})
-
 	resp := Resp{
 		Action:             "cashout",
 		Step:               round.Step,
@@ -243,7 +242,7 @@ func handleCashout(ctx context.Context, params PlayParams) (PlayResult, error) {
 
 	result := PlayResult{
 		Final:   true,
-		Finance: []json.RawMessage{payoutRaw},
+		Finance: []json.RawMessage{payoutFinance(currencyCode, round.AccCents)},
 		Game:    map[string]any{},
 		Round:   round,
 		Resp:    resp,
@@ -390,4 +389,10 @@ func derefStr(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+// payoutFinance marshals a FinancePayout entry with the session currency code.
+func payoutFinance(currencyCode string, amountCents int64) json.RawMessage {
+	raw, _ := json.Marshal(FinancePayout{Type: "payout", AmountCents: amountCents, Currency: currencyCode})
+	return raw
 }

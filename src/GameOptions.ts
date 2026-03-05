@@ -1,81 +1,202 @@
 /**
- * GameOptions — centralises all runner/server-supplied configuration.
+ * GameOptions — single mutable runtime store for all runner-supplied config.
  *
- * In production the runner injects a `window.__GAME_OPTIONS__` object
- * before the game bundle loads. In dev/demo mode the defaults below
- * are used (matching backend/config.yml demo-token).
+ * Populated once by `gameOptions.populateFromInit(initResult)` inside Game.boot().
+ * Updated incrementally by `gameOptions.mergeFromInfo(infoResult)` on each poll.
  *
- * All monetary values are bigint in the currency's minimal subunit.
+ * All monetary values (balance, bets) are bigint in the currency's minimal subunit.
+ * No "FUN" is hardcoded here — currency comes entirely from the runner.
  */
 
-import type { CurrencyOptions } from './moneyFormat';
+/// <reference types="vite/client" />
 
-// ── Type ──────────────────────────────────────────────────────────────────────
+import { computeFeDecimals, type CurrencyOptions } from './moneyFormat';
+import type {
+  RunnerInitResult,
+  RunnerInfoResult,
+  RunnerFreebets,
+  RunnerUrls,
+} from './runnerClient';
+import { toBigInt } from './runnerClient';
 
-export interface RunnerOptions {
-  /** Available bet values in minimal subunits, ascending. */
-  availableBets: bigint[];
-  /** Currency descriptor (subunits, exponent, code). */
-  currency: CurrencyOptions;
-  /** Starting wallet balance in minimal subunits. */
-  initialBalance: bigint;
-}
+// ── Store class ───────────────────────────────────────────────────────────────
 
-// ── Injection hook (production runner) ───────────────────────────────────────
+class GameOptionsStore {
+  // ── Identity ────────────────────────────────────────────────────────────
+  token = '';
 
-declare global {
-  interface Window {
-    /**
-     * The runner sets this before the game bundle executes.
-     * Fields mirror RunnerOptions but with plain numbers (JSON-serialisable):
-     *   available_bets: number[]
-     *   currency: { subunits: number; exponent: number; code?: string; symbol?: string }
-     *   balance: number   (in subunits)
-     */
-    __GAME_OPTIONS__?: {
-      available_bets: number[];
-      currency: { subunits: number; exponent: number; code?: string; symbol?: string };
-      balance: number;
+  // ── Currency ─────────────────────────────────────────────────────────────
+  currency: CurrencyOptions = { subunits: 100, exponent: 2, code: '' };
+  /** Pre-computed FE display decimals (used by moneyFormat throughout). */
+  feDecimals = 2;
+
+  // ── Bet list ──────────────────────────────────────────────────────────────
+  availableBets: bigint[] = [];
+  defaultBet: bigint = 0n;
+  /** Index into availableBets — mutated directly by the bet selector. */
+  selectedBetIndex = 0;
+
+  /** raw freebets_limits from init.config (array or keyed object). */
+  freebetsLimits: unknown = null;
+
+  // ── Session state ─────────────────────────────────────────────────────────
+  balance: bigint = 0n;
+  freebets: RunnerFreebets | null = null;
+
+  // ── Locale / navigation ───────────────────────────────────────────────────
+  locale?: string;
+  urls?: RunnerUrls;
+
+  /** True once populateFromInit has been called successfully. */
+  ready = false;
+
+  // ── Computed getters ──────────────────────────────────────────────────────
+
+  get selectedBet(): bigint {
+    return this.availableBets[this.selectedBetIndex] ?? this.defaultBet;
+  }
+
+  // ── Populate from Runner init ─────────────────────────────────────────────
+
+  populateFromInit(result: RunnerInitResult): void {
+    const ca = result.currency_attributes;
+    this.currency = {
+      subunits: ca.subunits,
+      exponent: ca.exponent,
+      code:     ca.code,
+      symbol:   ca.symbol,
     };
+
+    const rawBets   = result.config.bet_limits ?? [];
+    this.availableBets = rawBets.map(v => BigInt(v));
+
+    const rawDefault    = result.config.default_bet;
+    this.defaultBet     = rawDefault != null ? BigInt(rawDefault) : (this.availableBets[0] ?? 0n);
+
+    // Start on the default bet
+    const defIdx = this.availableBets.findIndex(b => b === this.defaultBet);
+    this.selectedBetIndex = defIdx >= 0 ? defIdx : 0;
+
+    this.freebetsLimits = result.config.freebets_limits ?? null;
+    this.balance        = toBigInt(result.balance);
+    this.freebets       = result.freebets ?? null;
+    this.locale         = result.locale;
+    this.urls           = result.urls;
+
+    this._recomputeDecimals();
+    this.ready = true;
+  }
+
+  // ── Merge from Runner info ────────────────────────────────────────────────
+
+  /**
+   * Merge an info response into the store.
+   * Never overrides selectedBetIndex unless the bet list itself changes.
+   * Returns a summary of what changed (for DEV logging).
+   */
+  mergeFromInfo(result: RunnerInfoResult): { balanceChanged: boolean; currencyChanged: boolean; betsChanged: boolean } {
+    let balanceChanged  = false;
+    let currencyChanged = false;
+    let betsChanged     = false;
+
+    // Balance (always present)
+    const newBalance = toBigInt(result.balance);
+    if (newBalance !== this.balance) {
+      this.balance   = newBalance;
+      balanceChanged = true;
+    }
+
+    // Freebets (optional)
+    if ('freebets' in result) {
+      this.freebets = result.freebets ?? null;
+    }
+
+    // State lock handled by RunnerClient automatically
+
+    // Currency (optional, handle index changes)
+    if (result.currency_attributes) {
+      const ca = result.currency_attributes;
+      if (ca.code !== this.currency.code || ca.subunits !== this.currency.subunits) {
+        this.currency = { subunits: ca.subunits, exponent: ca.exponent, code: ca.code, symbol: ca.symbol };
+        this._recomputeDecimals();
+        currencyChanged = true;
+      }
+    }
+
+    // Bet limits (optional — rebuild only if the list actually changed)
+    if (result.config?.bet_limits) {
+      const newBets  = result.config.bet_limits.map(v => BigInt(v));
+      const changed  = newBets.length !== this.availableBets.length ||
+                       newBets.some((b, i) => b !== this.availableBets[i]);
+      if (changed) {
+        const prev    = this.selectedBet;
+        this.availableBets = newBets;
+        // Keep the same bet value if it still exists; else fall back to default
+        const newIdx  = newBets.findIndex(b => b === prev);
+        const defIdx  = newBets.findIndex(b => b === this.defaultBet);
+        this.selectedBetIndex = newIdx >= 0 ? newIdx : defIdx >= 0 ? defIdx : 0;
+        if (result.config.freebets_limits !== undefined) {
+          this.freebetsLimits = result.config.freebets_limits ?? null;
+        }
+        this._recomputeDecimals();
+        betsChanged = true;
+      }
+    }
+
+    // Locale / URLs
+    if (result.locale) this.locale = result.locale;
+    if (result.urls)   this.urls   = { ...this.urls, ...result.urls };
+
+    return { balanceChanged, currencyChanged, betsChanged };
+  }
+
+  // ── Freebet helpers ───────────────────────────────────────────────────────
+
+  /** True when the player has at least one freebet remaining. */
+  shouldUseFreebet(): boolean {
+    const fb = this.freebets;
+    return fb != null && (fb.issued - fb.done) > 0;
+  }
+
+  /**
+   * Returns the bet amount for the current freebet level.
+   * Falls back to selectedBet if no limits are defined.
+   */
+  getFreebetBet(): bigint {
+    const fb     = this.freebets;
+    const limits = this.freebetsLimits;
+    if (!fb || !limits) return this.selectedBet;
+
+    const level = fb.bet_level;
+    let raw: number | undefined;
+
+    if (Array.isArray(limits)) {
+      raw = (limits as number[])[level];
+    } else if (typeof limits === 'object' && limits !== null) {
+      raw = (limits as Record<number, number>)[level];
+    }
+
+    return raw != null ? BigInt(raw) : this.selectedBet;
+  }
+
+  // ── Internal ──────────────────────────────────────────────────────────────
+
+  private _recomputeDecimals(): void {
+    const maxWins = this.availableBets.map(b => b * 500n);
+    this.feDecimals = computeFeDecimals(this.availableBets, maxWins, this.currency);
   }
 }
 
-// ── Defaults (dev / demo-token) ───────────────────────────────────────────────
+// ── Singleton export ──────────────────────────────────────────────────────────
 
-/**
- * Matches backend/config.yml demo-token:
- *   balance: 1000 FUN → 100000 subunits (subunits=100)
- *   bet_limits: [10, 20, 50, 100, 200] FUN → [1000, 2000, 5000, 10000, 20000] subunits
- */
-export const DEFAULT_OPTIONS: RunnerOptions = {
-  availableBets:  [1000n, 2000n, 5000n, 10000n, 20000n],
-  currency: {
-    subunits: 100,
-    exponent: 2,
-    code:     'FUN',
-    symbol:   '',
-  },
-  initialBalance: 100000n,
-};
+export const gameOptions = new GameOptionsStore();
 
-// ── Resolver ──────────────────────────────────────────────────────────────────
+// ── Backward-compat types (keep for anything still importing RunnerOptions) ───
 
-/**
- * Returns the active RunnerOptions.
- * Reads from `window.__GAME_OPTIONS__` if present; otherwise returns DEFAULT_OPTIONS.
- */
-export function resolveRunnerOptions(): RunnerOptions {
-  const raw = window.__GAME_OPTIONS__;
-  if (!raw) return DEFAULT_OPTIONS;
-
-  return {
-    availableBets:  raw.available_bets.map(v => BigInt(v)),
-    currency: {
-      subunits: raw.currency.subunits,
-      exponent: raw.currency.exponent,
-      code:     raw.currency.code,
-      symbol:   raw.currency.symbol,
-    },
-    initialBalance: BigInt(raw.balance),
-  };
+export type { CurrencyOptions };
+/** @deprecated Use gameOptions singleton instead. */
+export interface RunnerOptions {
+  availableBets:  bigint[];
+  currency:       CurrencyOptions;
+  initialBalance: bigint;
 }

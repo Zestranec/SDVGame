@@ -1,9 +1,19 @@
 /**
- * Backend JSON-RPC client.
- * All outcome decisions go through this; the frontend never computes them locally.
+ * Backend API client.
+ *
+ * backendPlay()   — JSON-RPC play method (game outcomes).
+ * fetchOptions()  — GET /options (currency, bet list, balance init).
+ *
+ * Both talk to the same Go backend, defaulting to localhost:4051.
+ * Override via VITE_BACKEND_URL in .env.development.
  */
 
-const BACKEND_URL = 'http://localhost:4051/api';
+/// <reference types="vite/client" />
+
+const BACKEND_BASE: string =
+  (import.meta.env.VITE_BACKEND_URL as string | undefined) ?? 'http://localhost:4051';
+
+const BACKEND_URL = `${BACKEND_BASE}/api`;
 
 // ── Response types ────────────────────────────────────────────────────────────
 
@@ -31,6 +41,7 @@ export interface BackendPlayResult {
 }
 
 export interface BackendPlayParams {
+  token?:   string;
   game:     unknown;
   round:    unknown;
   req:      { action: string; bet?: number; bet_type?: string };
@@ -82,4 +93,67 @@ export async function backendPlay(params: BackendPlayParams): Promise<BackendPla
   }
 
   return json.result;
+}
+
+// ── GET /options ──────────────────────────────────────────────────────────────
+
+/**
+ * Fetches server-driven options: currency, bet limits, starting balance.
+ * Returns a RunnerInitResult-shaped object so gameOptions.populateFromInit()
+ * works without any adaptation layer.
+ */
+export async function fetchOptions(token: string): Promise<BackendOptionsResult> {
+  const url = `${BACKEND_BASE}/options?token=${encodeURIComponent(token)}`;
+
+  if (import.meta.env.DEV) {
+    console.log('[backend] fetchOptions', url);
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(url, { method: 'GET' });
+  } catch (networkErr) {
+    throw new Error(`Backend unreachable (GET /options): ${String(networkErr)}`);
+  }
+
+  if (!res.ok) {
+    throw new Error(`Backend /options HTTP ${res.status} ${res.statusText}`);
+  }
+
+  const data = await res.json() as BackendOptionsResult;
+
+  if (import.meta.env.DEV) {
+    const ca = data.currency_attributes;
+    console.group('[backend] /options');
+    console.log('currency  :', ca?.code, `(sub=${ca?.subunits}, exp=${ca?.exponent})`);
+    console.log('bets      :', data.config?.bet_limits);
+    console.log('balance   :', data.balance);
+    console.groupEnd();
+  }
+
+  return data;
+}
+
+/** Shape returned by GET /options — matches RunnerInitResult for drop-in use. */
+export interface BackendOptionsResult {
+  state_lock: string;
+  balance: number | string;
+  currency_attributes: {
+    code: string;
+    symbol?: string;
+    subunits: number;
+    exponent: number;
+  };
+  config: {
+    bet_limits: number[];
+    freebets_limits?: number[];
+    default_bet?: number;
+  };
+  locale?: string;
+  urls?: {
+    return_url?: string;
+    deposit_url?: string;
+    history_url?: string;
+  };
+  freebets?: null;
 }

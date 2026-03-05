@@ -351,18 +351,23 @@
       <div id="hud-top">
         <div class="hud-item">
           <span class="hud-label">Balance</span>
-          <span class="hud-value gold" id="balance-display">1000</span>
+          <span class="hud-value gold" id="balance-display">—</span>
         </div>
 
-        <div id="seed-wrap">
-          <span class="hud-label">Seed</span>
-          <input id="seed-input" type="number" value="" min="1" max="999999999" placeholder="auto" />
+        <div class="hud-item">
+          <span class="hud-label">Bet</span>
+          <span class="hud-value" id="bet-display">—</span>
         </div>
 
         <div class="hud-item">
           <span class="hud-label">Round</span>
           <span class="hud-value green" id="round-val-hud">—</span>
         </div>
+      </div>
+
+      <!-- Seed input (dev tool — hidden from main HUD) -->
+      <div id="seed-wrap" style="display:none">
+        <input id="seed-input" type="number" value="" min="1" max="999999999" placeholder="auto" />
       </div>
 
       <!-- Bottom bar -->

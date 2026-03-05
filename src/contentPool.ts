@@ -56,3 +56,17 @@ export function contentUrl(contentId: string): string {
   }
   return CDN + file;
 }
+
+/**
+ * Returns all unique safe-clip CDN URLs (safe_1..safe_16, deduplicated by URL).
+ * Used by the video preloader to pick random safe videos to warm up.
+ * Bomb / buff URLs are intentionally excluded so preloads never reveal
+ * the next outcome.
+ */
+export function allSafeUrls(): string[] {
+  const seen = new Set<string>();
+  for (let i = 1; i <= 16; i++) {
+    seen.add(contentUrl(`safe_${i}`));
+  }
+  return [...seen];
+}

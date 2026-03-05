@@ -6,10 +6,11 @@ import { INTRO_CARD, BOMB_CARD, VIRAL_BOOST_CARD, type CardDef } from './Card';
 import { LoadingScene, LOADING_MIN_MS } from './LoadingScene';
 import { CardStyleController } from './CardStyleController';
 import { SAFE_CARDS_CONFIG } from './config/safeCards';
-import { backendPlay, type BackendResp, type BackendPlayResult } from './backendApi';
-import { contentUrl } from './contentPool';
-import { resolveRunnerOptions, type RunnerOptions } from './GameOptions';
-import { computeFeDecimals, formatAmount, devAssertNoRounding } from './moneyFormat';
+import { backendPlay, fetchOptions, type BackendResp, type BackendPlayResult } from './backendApi';
+import { contentUrl, allSafeUrls } from './contentPool';
+import { gameOptions } from './GameOptions';
+import { formatAmount } from './moneyFormat';
+import { parseTokenFromUrl, showFatalError } from './runnerClient';
 
 export type GameState = 'loading' | 'intro' | 'running' | 'transitioning' | 'win' | 'lose';
 
@@ -80,13 +81,8 @@ class SwipeInput {
 export class Game {
   private state: GameState = 'loading';
 
-  // Runner / server options
-  private readonly options: RunnerOptions;
-  /** Pre-computed FE decimals used for all monetary display. */
-  private readonly feDecimals: number;
-
-  // Selected bet: index into options.availableBets
-  private betIndex = 0;
+  /** Token from URL ?token=... */
+  private readonly token: string;
 
   private economy: Economy;
   private renderer: Renderer;
@@ -98,26 +94,27 @@ export class Game {
   private visualRng: Rng = new Rng(Math.floor(Math.random() * 1_000_000_000));
   private styleCtrl = new CardStyleController();
 
-  // Backend state — persisted across swipes within a round.
+  // Backend round state — persisted across swipes within one round.
+  // The Go game engine is stateless; we pass these back on each play call.
   private backendGameState: unknown = {};
   private backendRoundState: unknown = null;
 
   constructor(canvas: HTMLCanvasElement) {
-    this.options = resolveRunnerOptions();
+    const token = parseTokenFromUrl();
+    if (!token) {
+      showFatalError('Missing token in URL (?token=…).\nBackend init cannot start.');
+      this.token    = '';
+      this.economy  = new Economy(0n);
+      this.renderer = new Renderer(canvas);
+      this.ui       = new Ui();
+      this.swipe    = new SwipeInput(document.body, () => {});
+      return;
+    }
 
-    // Compute FE display decimals from available bets + max possible wins (bet × 500)
-    const maxWins = this.options.availableBets.map(b => b * 500n);
-    this.feDecimals = computeFeDecimals(
-      this.options.availableBets,
-      maxWins,
-      this.options.currency,
-    );
-
-    this.economy  = new Economy(this.options.initialBalance);
+    this.token    = token;
+    this.economy  = new Economy(0n);   // overwritten after /options
     this.renderer = new Renderer(canvas);
     this.ui       = new Ui();
-
-    this.ui.setCurrencyConfig(this.options.currency, this.feDecimals);
 
     this.ui.onCashout(     () => void this.handleCashout());
     this.ui.onPopupButton( () => this.handlePopupButton());
@@ -128,7 +125,7 @@ export class Game {
 
     this.swipe = new SwipeInput(document.body, () => this.handleSwipeUp());
 
-    this.ui.setBalance(this.economy.balance);
+    this.ui.setBalance(0n);
     this.ui.clearRoundHud();
     this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
 
@@ -140,54 +137,85 @@ export class Game {
 
   /** Currently selected bet in subunits. */
   private get currentBet(): bigint {
-    return this.options.availableBets[this.betIndex];
+    return gameOptions.selectedBet;
   }
 
   /**
-   * Convert a bigint subunit value to a float for sending to the backend
-   * (which currently expects Req.Bet as a float in whole units).
+   * Convert a bigint subunit bet to the float (whole-unit) value the Go backend
+   * expects in Req.Bet.  e.g. 1000 cents / 100 subunits = 10.0 (USD).
    */
   private toBackendBet(betInt: bigint): number {
-    return Number(betInt) / this.options.currency.subunits;
+    return Number(betInt) / gameOptions.currency.subunits;
   }
 
   /** Compute the display multiplier from backend acc relative to bet×houseEdge. */
   private computeMultiplier(): number {
     const bet = this.currentBet;
     if (bet === 0n) return 1;
-    // houseEdgeSeed = bet * 9500 / 10000 (integer cents)
     const seed = (bet * 9500n) / 10000n;
     if (seed === 0n) return 1;
     return Number(this.economy.roundValue) / Number(seed);
   }
 
-  /** Format a bet value for display in the bet selector. */
+  /** Format a bet value for display in the bet selector (no trailing-zero trim). */
   private formatBet(betInt: bigint): string {
-    return formatAmount(betInt, this.options.currency, this.feDecimals, false);
+    return formatAmount(betInt, gameOptions.currency, gameOptions.feDecimals, false);
   }
 
-  // ── Boot (loading screen) ─────────────────────────────────────────────────
+  /**
+   * Preload `count` randomly chosen safe videos that are not already cached.
+   * Only safe URLs are picked — never bomb/buff — so the preload set reveals
+   * nothing about the next outcome (Phase 1 anti-spoiler policy).
+   * No-op when VITE_VIDEO_PRELOAD is not set.
+   */
+  private preloadRandomSafe(count: number): void {
+    if (!this.renderer.videoCacheEnabled) return;
+    const pool  = allSafeUrls();
+    const picks = Math.min(count, pool.length);
+    for (let i = 0; i < picks; i++) {
+      const j = i + Math.floor(Math.random() * (pool.length - i));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+      this.renderer.preloadUrl(pool[i]);
+    }
+  }
+
+  // ── Boot (loading screen + GET /options) ──────────────────────────────────
 
   private async boot(): Promise<void> {
     const startTime = performance.now();
     const scene     = new LoadingScene(this.renderer.app);
 
-    const SIM_MS  = 1000;
+    const SIM_MS = 1000;
     const ticker  = setInterval(() => {
       const t = Math.min((performance.now() - startTime) / SIM_MS, 1);
       scene.setProgress(t * 0.9);
     }, 16);
 
-    await Promise.all([
-      scene.loadAssets(),
-      delay(LOADING_MIN_MS),
-    ]);
+    try {
+      const [optionsResult] = await Promise.all([
+        fetchOptions(this.token),
+        scene.loadAssets(),
+        delay(LOADING_MIN_MS),
+      ]);
+
+      gameOptions.populateFromInit(optionsResult);
+      this.economy = new Economy(gameOptions.balance);
+      this.ui.setCurrencyConfig(gameOptions.currency, gameOptions.feDecimals);
+
+    } catch (err) {
+      clearInterval(ticker);
+      scene.destroy();
+      showFatalError(`Backend init failed:\n${String(err)}`);
+      return;
+    }
 
     clearInterval(ticker);
     scene.setProgress(1.0);
     await delay(120);
 
     scene.destroy();
+    this.ui.setBalance(this.economy.balance);
+    this.ui.setCurrentBet(gameOptions.selectedBet);
     this.setState('intro');
   }
 
@@ -206,9 +234,12 @@ export class Game {
         this.ui.hidePopup();
         this.renderer.showCard(INTRO_CARD, {
           betOpts: {
-            bets:        this.options.availableBets,
-            betIndex:    this.betIndex,
-            onBetChange: (i) => { this.betIndex = i; },
+            bets:        gameOptions.availableBets,
+            betIndex:    gameOptions.selectedBetIndex,
+            onBetChange: (i) => {
+              gameOptions.selectedBetIndex = i;
+              this.ui.setCurrentBet(gameOptions.selectedBet);
+            },
             formatBet:   (v) => this.formatBet(v),
           },
         });
@@ -297,23 +328,19 @@ export class Game {
     const bet = this.currentBet;
 
     if (!this.economy.canAfford(bet)) {
-      this.economy.balance = this.options.initialBalance;
-      this.ui.setBalance(this.economy.balance);
+      // Balance insufficient: show a toast and stay on intro
+      this.ui.showError('Insufficient balance. Please top up.');
+      return;
     }
 
     this.economy.startRound(bet);
     this.setState('transitioning');
 
-    // DEV: verify bet formatting is lossless
-    if (import.meta.env.DEV) {
-      devAssertNoRounding('bet', bet, this.options.currency,
-        this.formatBet(bet));
-    }
-
     // ── Backend: start action ────────────────────────────────────────────────
     let res: BackendPlayResult;
     try {
       res = await backendPlay({
+        token:    this.token,
         game:     this.backendGameState,
         round:    null,
         req:      { action: 'start', bet: this.toBackendBet(bet), bet_type: 'bet' },
@@ -322,9 +349,8 @@ export class Game {
       });
     } catch (err) {
       console.error('[Game] Backend error on start:', err);
-      this.ui.showError('Connection error — backend unreachable');
-      // Roll back economy deduction and return to intro
-      this.economy.onBomb();
+      this.ui.showError(`Connection error — ${String(err)}`);
+      // Refund the deducted bet since the round didn't start
       this.economy.balance += bet;
       this.setState('intro');
       return;
@@ -342,6 +368,9 @@ export class Game {
     if (res.resp.outcome === 'bomb') {
       await this.triggerBomb();
     } else {
+      // Preload 2 random safe videos now that the network is free.
+      // Only safe URLs are chosen — never bomb/buff — so this leaks nothing.
+      this.preloadRandomSafe(2);
       this.economy.setRoundValueFromBackend(accCents, res.resp.step);
       if (res.resp.max_reached || res.resp.ended_by === 'maxwin') {
         this.triggerMaxWin(accCents);
@@ -361,6 +390,7 @@ export class Game {
     let res: BackendPlayResult;
     try {
       res = await backendPlay({
+        token:    this.token,
         game:     this.backendGameState,
         round:    this.backendRoundState,
         req:      { action: 'swipe' },
@@ -369,7 +399,7 @@ export class Game {
       });
     } catch (err) {
       console.error('[Game] Backend error on swipe:', err);
-      this.ui.showError('Connection error — backend unreachable');
+      this.ui.showError(`Connection error — ${String(err)}`);
       this.setState('running');
       return;
     }
@@ -386,6 +416,8 @@ export class Game {
     if (res.resp.outcome === 'bomb') {
       await this.triggerBomb();
     } else {
+      // Preload 2 random safe videos while the user reads the current card.
+      this.preloadRandomSafe(2);
       this.economy.setRoundValueFromBackend(accCents, res.resp.step);
       if (res.resp.max_reached || res.resp.ended_by === 'maxwin') {
         this.triggerMaxWin(accCents);
@@ -407,6 +439,7 @@ export class Game {
       let res: BackendPlayResult;
       try {
         res = await backendPlay({
+          token:    this.token,
           game:     this.backendGameState,
           round:    this.backendRoundState,
           req:      { action: 'cashout' },
@@ -415,7 +448,7 @@ export class Game {
         });
       } catch (err) {
         console.error('[Game] Backend error on cashout:', err);
-        this.ui.showError('Connection error — cashout failed, please retry');
+        this.ui.showError('Cashout failed — please retry');
         return;
       }
 
@@ -423,23 +456,9 @@ export class Game {
       this.backendRoundState = null;
 
       const accCents = BigInt(res.resp.acc_cents);
+      const gross    = this.economy.applyCashoutFromBackend(accCents);
 
-      // DEV: verify balance formatting is lossless after cashout
-      if (import.meta.env.DEV) {
-        const newBalance = this.economy.balance + accCents;
-        const { formatAmount: fmt } = await import('./moneyFormat');
-        const required = import('./moneyFormat').then(m =>
-          m.countRequiredDecimals(newBalance, BigInt(this.options.currency.subunits)));
-        void required.then(req => {
-          const decimals = Math.max(this.feDecimals, req);
-          devAssertNoRounding('balance-postcashout', newBalance, this.options.currency,
-            fmt(newBalance, this.options.currency, decimals, true));
-        });
-      }
-
-      const gross = this.economy.applyCashoutFromBackend(accCents);
       this.setState('win');
-
       this.renderer.celebrateCashout();
       this.ui.setBalance(this.economy.balance);
       this.ui.clearRoundHud();
@@ -493,10 +512,6 @@ export class Game {
   // ── Popup button ───────────────────────────────────────────────────────────
 
   private handlePopupButton(): void {
-    if (!this.economy.canAfford(this.currentBet)) {
-      this.economy.balance = this.options.initialBalance;
-      this.ui.setBalance(this.economy.balance);
-    }
     this.setState('intro');
   }
 }

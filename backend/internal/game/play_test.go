@@ -80,7 +80,7 @@ func TestStartSwipeCashout(t *testing.T) {
 	// --- start ---
 	res1, err := game.Play(ctx, game.PlayParams{
 		Req: game.Req{Action: "start", Bet: bet, BetType: "bet"},
-	}, rngURL, false)
+	}, rngURL, false, "USD")
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestStartSwipeCashout(t *testing.T) {
 	res2, err := game.Play(ctx, game.PlayParams{
 		Round: &res1.Round,
 		Req:   game.Req{Action: "swipe"},
-	}, rngURL, false)
+	}, rngURL, false, "USD")
 	if err != nil {
 		t.Fatalf("swipe: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestStartSwipeCashout(t *testing.T) {
 	res3, err := game.Play(ctx, game.PlayParams{
 		Round: &res2.Round,
 		Req:   game.Req{Action: "cashout"},
-	}, rngURL, false)
+	}, rngURL, false, "USD")
 	if err != nil {
 		t.Fatalf("cashout: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestStartBomb(t *testing.T) {
 
 	res, err := game.Play(context.Background(), game.PlayParams{
 		Req: game.Req{Action: "start", Bet: 10, BetType: "bet"},
-	}, rngURL, false)
+	}, rngURL, false, "USD")
 	if err != nil {
 		t.Fatalf("start+bomb: %v", err)
 	}
@@ -197,13 +197,13 @@ func TestSwipeAfterFinal(t *testing.T) {
 
 	res, _ := game.Play(ctx, game.PlayParams{
 		Req: game.Req{Action: "start", Bet: 10, BetType: "bet"},
-	}, rngURL, false)
+	}, rngURL, false, "USD")
 
 	// Round is dead — swipe must error
 	_, err := game.Play(ctx, game.PlayParams{
 		Round: &res.Round,
 		Req:   game.Req{Action: "swipe"},
-	}, rngURL, false)
+	}, rngURL, false, "USD")
 	if err == nil {
 		t.Fatal("swipe after final: expected error, got nil")
 	}
@@ -234,7 +234,7 @@ func TestMaxWin(t *testing.T) {
 
 	res1, err := game.Play(ctx, game.PlayParams{
 		Req: game.Req{Action: "start", Bet: bet, BetType: "bet"},
-	}, rngURL, false)
+	}, rngURL, false, "USD")
 	if err != nil {
 		t.Fatalf("maxwin start: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestMaxWin(t *testing.T) {
 	res2, err := game.Play(ctx, game.PlayParams{
 		Round: &res1.Round,
 		Req:   game.Req{Action: "swipe"},
-	}, rngURL, false)
+	}, rngURL, false, "USD")
 	if err != nil {
 		t.Fatalf("maxwin swipe1: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestMaxWin(t *testing.T) {
 	res3, err := game.Play(ctx, game.PlayParams{
 		Round: &res2.Round,
 		Req:   game.Req{Action: "swipe"},
-	}, rngURL, false)
+	}, rngURL, false, "USD")
 	if err != nil {
 		t.Fatalf("maxwin swipe2: %v", err)
 	}

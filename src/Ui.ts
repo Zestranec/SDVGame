@@ -15,6 +15,7 @@ import {
 
 export class Ui {
   private balanceEl    = document.getElementById('balance-display')!;
+  private betEl        = document.getElementById('bet-display')!;
   private roundValHud  = document.getElementById('round-val-hud')!;
   private roundValBig  = document.getElementById('round-value-display')! as HTMLElement;
   private multiplierEl = document.getElementById('multiplier-display')! as HTMLElement;
@@ -34,8 +35,9 @@ export class Ui {
   readonly seedInput = document.getElementById('seed-input')! as HTMLInputElement;
   readonly soundBtn  = document.getElementById('btn-sound')! as HTMLElement;
 
-  // Currency config — set once at game init via setCurrencyConfig()
-  private currency: CurrencyOptions = { subunits: 100, exponent: 2, code: 'FUN' };
+  // Currency config — set once at game init via setCurrencyConfig().
+  // Defaults are neutral placeholders; overwritten before any display call.
+  private currency: CurrencyOptions = { subunits: 100, exponent: 2, code: '' };
   private feDecimals  = 2;
 
   // ── Currency config ───────────────────────────────────────────────────────
@@ -76,7 +78,12 @@ export class Ui {
   // ── Balance ──────────────────────────────────────────────────────────────
 
   setBalance(balanceInt: bigint): void {
-    this.balanceEl.textContent = this.fmtBalance(balanceInt);
+    this.balanceEl.textContent = this.ccy(this.fmtBalance(balanceInt));
+  }
+
+  /** Update the Bet HUD item with the currently selected bet. */
+  setCurrentBet(betInt: bigint): void {
+    this.betEl.textContent = this.ccy(this.fmtBet(betInt));
   }
 
   // ── Round HUD ────────────────────────────────────────────────────────────
@@ -121,7 +128,7 @@ export class Ui {
     this.popupAmount.textContent   = `+${this.ccy(win)}`;
     this.popupAmount.className     = 'win';
     this.popupAmount.style.display = 'block';
-    this.popupSubtitle.textContent = 'Safe feed. Take the FUN and keep scrolling.';
+    this.popupSubtitle.textContent = 'Safe feed. Keep scrolling!';
     this.popupBalance.textContent  = `Balance: ${this.ccy(bal)}`;
     this.popupBtn.textContent      = 'COLLECT';
     this.popupBtn.className        = 'popup-btn success';
@@ -161,7 +168,7 @@ export class Ui {
   showPopupBroke(): void {
     this.popupTitle.textContent    = 'BROKE!';
     this.popupAmount.style.display = 'none';
-    this.popupSubtitle.textContent = 'You ran out of FUN. Refilling to starting balance.';
+    this.popupSubtitle.textContent = 'You ran out of credit. Refilling to starting balance.';
     this.popupBalance.textContent  = '';
     this.popupBtn.textContent      = 'REFILL & PLAY';
     this.popupBtn.className        = 'popup-btn primary';

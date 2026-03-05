@@ -1,17 +1,18 @@
 /**
  * Economy — tracks per-session bigint monetary state.
  *
+ * Balance is managed locally because the game backend is a pure game engine
+ * that does not own wallets:
+ *   - Starting balance comes from GET /options.
+ *   - Bet is deducted at round start (startRound).
+ *   - Win is credited at cashout/maxwin (applyCashoutFromBackend).
+ *
+ * Round value is driven by backend resp.acc_cents.
  * All values are in the currency's minimal subunit (bigint).
  * Formatting for display is handled by moneyFormat.ts, not here.
- *
- * Round value is driven exclusively by backend responses;
- * the class never computes multipliers or outcomes locally.
  */
 
 // ── Legacy float constants (still exported for Simulation.ts) ────────────────
-// These are math constants used by the simulation model only.
-// They are NOT used by the live game code path.
-
 /** Fraction of bet that seeds the initial round value. */
 export const HOUSE_EDGE = 0.95;
 /** Hard cap multiplier: round value ≤ bet × MAX_MULT. */
@@ -72,7 +73,7 @@ export class Economy {
     return accCents;
   }
 
-  /** Bomb hit — forfeit the round value. */
+  /** Bomb hit — forfeit the round value (bet already deducted). */
   onBomb(): void {
     this.roundValue = 0n;
     this.cardCount  = 0;

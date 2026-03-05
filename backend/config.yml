@@ -10,7 +10,7 @@ rng:
 sessions:
   demo-token:
     state: active
-    currency: fun
+    currency: usd
     locale: en
     bet_limits: [10, 20, 50, 100, 200]
     freebets_limits: [10, 20, 50, 100, 200]

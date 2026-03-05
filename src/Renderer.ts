@@ -1,6 +1,8 @@
 /// <reference types="vite/client" />
 import * as PIXI from 'pixi.js';
 import type { CardDef, CardAnimType } from './Card';
+import { VideoCanvasTexture } from './VideoCanvasTexture';
+import { VideoCache } from './VideoCache';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -510,111 +512,6 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
     animFn,
     cleanup: () => window.removeEventListener('resize', onResize),
   };
-}
-
-// ── VideoCanvasTexture ─────────────────────────────────────────────────────────
-// Renders an <video> frame-by-frame into an offscreen <canvas>, then exposes a
-// PIXI.Texture backed by that canvas.  Zero PIXI VideoResource involvement —
-// no canplay/play event loops possible.
-
-class VideoCanvasTexture {
-  readonly video:   HTMLVideoElement;
-  readonly texture: PIXI.Texture;
-  readonly sprite:  PIXI.Sprite;
-  private readonly canvas: HTMLCanvasElement;
-  private readonly ctx:    CanvasRenderingContext2D;
-  private _destroyed    = false;
-  private _playPromise: Promise<void> | null = null;
-
-  constructor(url: string, cardW: number, cardH: number) {
-    // Offscreen canvas sized to match the card's aspect ratio at ~360p.
-    const cw = 360;
-    const ch = Math.round(cw * (cardH / cardW));
-    this.canvas = document.createElement('canvas');
-    this.canvas.width  = cw;
-    this.canvas.height = ch;
-    this.ctx = this.canvas.getContext('2d')!;
-    this.ctx.fillStyle = '#000';
-    this.ctx.fillRect(0, 0, cw, ch); // black until first frame
-
-    // PIXI texture backed by the canvas — no VideoResource involved
-    this.texture = PIXI.Texture.from(this.canvas);
-
-    // Sprite fills the full card without distortion (canvas already matches AR)
-    this.sprite        = new PIXI.Sprite(this.texture);
-    this.sprite.width  = cardW;
-    this.sprite.height = cardH;
-    this.sprite.anchor.set(0.5);
-    this.sprite.x = cardW / 2;
-    this.sprite.y = cardH / 2;
-
-    // Video element — never added to DOM
-    this.video = document.createElement('video');
-    this.video.crossOrigin = 'anonymous'; // required for canvas drawImage from CDN
-    this.video.muted       = true;
-    this.video.loop        = true;
-    this.video.playsInline = true;
-    this.video.autoplay    = true;
-    this.video.preload     = 'auto';
-    this.video.setAttribute('playsinline', '');
-    this.video.setAttribute('muted',       '');
-    this.video.setAttribute('autoplay',    '');
-    this.video.src = url;
-    this.video.load();
-  }
-
-  /**
-   * Attempt autoplay. Idempotent — returns the in-flight promise if a play()
-   * call is already pending, resolves immediately if already playing.
-   * Rejects if the browser blocks autoplay (caller shows tap-to-play).
-   */
-  tryPlay(): Promise<void> {
-    if (this._destroyed)          return Promise.resolve();
-    if (!this.video.paused)       return Promise.resolve();
-    if (this._playPromise)        return this._playPromise;
-    this._playPromise = this.video.play().catch(err => {
-      this._playPromise = null; // allow retry after user gesture
-      throw err;
-    });
-    return this._playPromise;
-  }
-
-  /**
-   * Draw the current video frame into the canvas and mark the texture dirty.
-   * Must be called every render frame from the PIXI ticker — this is the ONLY
-   * place that calls texture.baseTexture.update(), so no event re-entrancy.
-   */
-  tick(): void {
-    if (this._destroyed) return;
-    const v = this.video;
-    if (v.readyState < 2 || v.paused || v.ended) return;
-    try {
-      const vw = v.videoWidth  || this.canvas.width;
-      const vh = v.videoHeight || this.canvas.height;
-      const cw = this.canvas.width;
-      const ch = this.canvas.height;
-      // Cover-crop: center-crop video into canvas
-      const scale = Math.max(cw / vw, ch / vh);
-      const sw = cw / scale;
-      const sh = ch / scale;
-      const sx = (vw - sw) / 2;
-      const sy = (vh - sh) / 2;
-      this.ctx.drawImage(v, sx, sy, sw, sh, 0, 0, cw, ch);
-      this.texture.baseTexture.update();
-    } catch {
-      // CORS taint or decode error — silently skip frame
-    }
-  }
-
-  /** Stop video and free PIXI + canvas resources. */
-  destroy(): void {
-    if (this._destroyed) return;
-    this._destroyed = true;
-    this.video.pause();
-    this.video.removeAttribute('src');
-    this.video.load(); // abort pending network
-    if (!this.texture.destroyed) this.texture.destroy(true); // also destroys baseTexture
-  }
 }
 
 // ── Video card (full-screen looping video via canvas texture) ──────────────────
@@ -1169,6 +1066,8 @@ export class Renderer {
   private _primedVcTex: VideoCanvasTexture | null = null;
   /** True after the first primeCard() call — gates tap-to-play overlay so it never shows before first gesture. */
   private autoplayUnlocked = false;
+  /** LRU cache for preloaded safe videos (Phase 1). */
+  private readonly videoCache = new VideoCache();
 
   constructor(canvas: HTMLCanvasElement) {
     this.app = new PIXI.Application({
@@ -1195,6 +1094,9 @@ export class Renderer {
   get width(): number { return this.app.screen.width; }
   get height(): number { return this.app.screen.height; }
 
+  /** True when the video preload cache feature is enabled. */
+  get videoCacheEnabled(): boolean { return this.videoCache.enabled; }
+
   /**
    * Mark autoplay as unlocked without creating a VideoCanvasTexture.
    * Call this synchronously inside a user-gesture handler (before any `await`)
@@ -1203,6 +1105,7 @@ export class Renderer {
    */
   unlockAutoplay(): void {
     this.autoplayUnlocked = true;
+    this.videoCache.setAutoplayUnlocked();
   }
 
   /**
@@ -1211,19 +1114,51 @@ export class Renderer {
    * The primed vcTex is consumed by the next transitionTo() call so the already-
    * playing video is reused instead of creating a new element.
    *
+   * If the URL is in the VideoCache, the cached instance is used (cache hit),
+   * saving the network round-trip for the video.
+   *
    * Call this for every card, right before `await renderer.transitionTo(card)`.
    */
   primeCard(def: CardDef): void {
     if (!def.videoUrl) return;
-    this.autoplayUnlocked = true; // first gesture has occurred
+    this.autoplayUnlocked = true;
+    this.videoCache.setAutoplayUnlocked();
+
     // Clean up any unused prime from a previous (unreachable) call.
     if (this._primedVcTex) {
       this.activeVcTextures.delete(this._primedVcTex);
       this._primedVcTex.destroy();
     }
-    this._primedVcTex = new VideoCanvasTexture(def.videoUrl, this.width, this.height);
+
+    // Try cache first; fall back to fresh creation on miss.
+    const cached = this.videoCache.take(def.videoUrl);
+    if (cached) {
+      // Resize sprite to current screen dimensions in case they changed since preload.
+      cached.sprite.width  = this.width;
+      cached.sprite.height = this.height;
+      cached.sprite.x      = this.width  / 2;
+      cached.sprite.y      = this.height / 2;
+      this._primedVcTex    = cached;
+    } else {
+      this._primedVcTex = new VideoCanvasTexture(def.videoUrl, this.width, this.height);
+    }
+
     this.activeVcTextures.add(this._primedVcTex); // tick immediately (fills first frame)
     this._primedVcTex.tryPlay().catch(() => {}); // errors handled by buildVideoCard's fallback
+  }
+
+  /**
+   * Ask the VideoCache to preload a URL in the background.
+   * Safe videos only — never call this for bomb/buff URLs (Phase 1 policy).
+   * No-op when VITE_VIDEO_PRELOAD is not set.
+   */
+  preloadUrl(url: string): void {
+    this.videoCache.preload(url);
+  }
+
+  /** Destroy all cached (not yet active) video elements. Safe to call at any time. */
+  clearVideoCache(): void {
+    this.videoCache.clear();
   }
 
   /** Register a card's vcTex into the active set so the ticker drives it. */
