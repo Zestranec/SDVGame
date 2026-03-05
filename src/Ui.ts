@@ -118,6 +118,45 @@ export class Ui {
     this.popup.classList.remove('hidden');
   }
 
+  // ── Error toast ──────────────────────────────────────────────────────────
+
+  /**
+   * Show a brief red error toast at the top of the screen.
+   * Auto-dismisses after 3 seconds.
+   */
+  showError(message: string): void {
+    let toast = document.getElementById('error-toast') as HTMLElement | null;
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'error-toast';
+      Object.assign(toast.style, {
+        position:     'fixed',
+        top:          '70px',
+        left:         '50%',
+        transform:    'translateX(-50%)',
+        background:   'rgba(180,20,20,0.92)',
+        color:        '#fff',
+        padding:      '10px 20px',
+        borderRadius: '8px',
+        fontSize:     '13px',
+        fontWeight:   '700',
+        zIndex:       '9999',
+        pointerEvents: 'none',
+        textAlign:    'center',
+        maxWidth:     '80vw',
+        boxShadow:    '0 2px 12px rgba(0,0,0,0.5)',
+      });
+      document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.style.display = 'block';
+    toast.style.opacity = '1';
+    clearTimeout((toast as HTMLElement & { _timer?: ReturnType<typeof setTimeout> })._timer);
+    (toast as HTMLElement & { _timer?: ReturnType<typeof setTimeout> })._timer = setTimeout(() => {
+      if (toast) toast.style.display = 'none';
+    }, 3000);
+  }
+
   // ── Flash (bomb) ──────────────────────────────────────────────────────────
 
   flashRed(durationMs = 500): void {

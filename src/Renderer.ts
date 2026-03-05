@@ -1192,6 +1192,16 @@ export class Renderer {
   get height(): number { return this.app.screen.height; }
 
   /**
+   * Mark autoplay as unlocked without creating a VideoCanvasTexture.
+   * Call this synchronously inside a user-gesture handler (before any `await`)
+   * so that subsequent video.play() calls after async operations are allowed
+   * on browsers that track gesture context.
+   */
+  unlockAutoplay(): void {
+    this.autoplayUnlocked = true;
+  }
+
+  /**
    * Pre-build a VideoCanvasTexture and call tryPlay() NOW, while the caller is
    * still inside a synchronous user-gesture handler (before any `await`).
    * The primed vcTex is consumed by the next transitionTo() call so the already-

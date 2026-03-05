@@ -1,15 +1,24 @@
+game:
+  code: adhdoom"
+
 backend:
-  url: "http://localhost:4051/api"
+  url: "http://localhost:4051/api"   # у тебя backend слушает /api
 
 rng:
-  url: "http://localhost:4002/api"
+  url: "http://localhost:4002/api"   # если runner поднимает RNG на 4002 (часто так)
 
 sessions:
   demo-token:
-    balance: 1000
+    state: active
+    currency: fun
+    locale: en
+    bet_limits: [10, 20, 50, 100, 200]
+    freebets_limits: [10, 20, 50, 100, 200]
     default_bet: 10
-    bet_limits: [10, 200]
-    freebets_limits:
-      0: [10, 10]
-      1: [20, 20]
-    rtp: 95
+    balance: 1000
+    rtp: "95.0"
+
+urls:
+  return_url: https://google.com
+  deposit_url: https://binance.com
+  history_url: https://history.com

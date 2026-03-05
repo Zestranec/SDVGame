@@ -99,6 +99,25 @@ export class Economy {
   }
 
   /**
+   * Backend integration: set round value and step count from backend resp.acc.
+   * Replaces local onSafeCard() calls when routing outcomes through the backend.
+   */
+  setRoundValueFromBackend(acc: number, step: number): void {
+    this.roundValue = acc;
+    this.cardCount  = step;
+  }
+
+  /**
+   * Backend integration: credit the backend-authoritative acc to balance.
+   * Replaces local cashout() when routing outcomes through the backend.
+   */
+  applyCashoutFromBackend(acc: number): void {
+    this.balance   += acc;
+    this.roundValue = 0;
+    this.cardCount  = 0;
+  }
+
+  /**
    * Cumulative multiplier relative to the edge-adjusted starting value.
    * Starts at 1.0 after the first safe card and grows with each subsequent safe.
    */

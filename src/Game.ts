@@ -1,11 +1,13 @@
-import { Rng, makeSeed } from './Rng';
+import { Rng } from './Rng';
 import { Economy, STARTING_BALANCE, BET_MIN, BET_MAX, BET_STEP } from './Economy';
-import { OutcomeController } from './OutcomeController';
-import { ReelEngine } from './ReelEngine';
 import { Renderer, BetSelectorOpts } from './Renderer';
 import { Ui } from './Ui';
-import { INTRO_CARD } from './Card';
+import { INTRO_CARD, BOMB_CARD, VIRAL_BOOST_CARD, type CardDef } from './Card';
 import { LoadingScene, LOADING_MIN_MS } from './LoadingScene';
+import { CardStyleController } from './CardStyleController';
+import { SAFE_CARDS_CONFIG } from './config/safeCards';
+import { backendPlay, type BackendResp, type BackendPlayResult } from './backendApi';
+import { contentUrl } from './contentPool';
 
 export type GameState = 'loading' | 'intro' | 'running' | 'transitioning' | 'win' | 'lose';
 
@@ -75,37 +77,38 @@ class SwipeInput {
 
 export class Game {
   private state: GameState = 'loading';
-  private rng!: Rng;
   private economy: Economy;
-  private outCtrl!: OutcomeController;
-  private reel!: ReelEngine;
   private renderer: Renderer;
   private ui: Ui;
   private swipe: SwipeInput;
   private muted = false;
+
+  // Visual-only RNG (safe card template selection — NOT outcome generation).
+  private visualRng: Rng = new Rng(Math.floor(Math.random() * 1_000_000_000));
+  private styleCtrl = new CardStyleController();
+
+  // Backend state — persisted across swipes within a round.
+  private backendGameState: unknown = {};
+  private backendRoundState: unknown = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.economy  = new Economy();
     this.renderer = new Renderer(canvas);
     this.ui       = new Ui();
 
-    this.ui.onCashout(     () => this.handleCashout());
+    this.ui.onCashout(     () => void this.handleCashout());
     this.ui.onPopupButton( () => this.handlePopupButton());
     this.ui.soundBtn.addEventListener('click', () => {
       this.muted = !this.muted;
       this.ui.soundBtn.textContent = this.muted ? '🔇' : '🔊';
     });
-    this.ui.seedInput.addEventListener('change', () => this.resetRng());
 
     this.swipe = new SwipeInput(document.body, () => this.handleSwipeUp());
 
-    // Seed + initial HUD state (balance visible but bottom bar hidden during loading)
-    this.resetRng();
     this.ui.setBalance(this.economy.balance);
     this.ui.clearRoundHud();
     this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
 
-    // Show loading screen; go directly to gameplay when done
     this.setState('loading');
     void this.boot();
   }
@@ -116,14 +119,12 @@ export class Game {
     const startTime = performance.now();
     const scene     = new LoadingScene(this.renderer.app);
 
-    // Simulate progress 0 → 90 % over ~1 000 ms while assets load in parallel
     const SIM_MS  = 1000;
     const ticker  = setInterval(() => {
       const t = Math.min((performance.now() - startTime) / SIM_MS, 1);
       scene.setProgress(t * 0.9);
     }, 16);
 
-    // Load logo + enforce minimum display time (whichever takes longer)
     await Promise.all([
       scene.loadAssets(),
       delay(LOADING_MIN_MS),
@@ -131,7 +132,7 @@ export class Game {
 
     clearInterval(ticker);
     scene.setProgress(1.0);
-    await delay(120); // brief hold at 100 % before transition
+    await delay(120);
 
     scene.destroy();
     this.setState('intro');
@@ -194,21 +195,51 @@ export class Game {
    */
   private busy = false;
 
-  private async handleSwipeUp(): Promise<void> {
+  private handleSwipeUp(): void {
     if (this.busy) return;
+    // Unlock autoplay NOW, synchronously inside the gesture handler,
+    // before any await — keeps iOS video.play() in gesture context.
+    this.renderer.unlockAutoplay();
+
     if (this.state === 'intro') {
       this.busy = true;
-      try { await this.beginRound(); } finally { this.busy = false; }
+      void this.beginRound().finally(() => { this.busy = false; });
     } else if (this.state === 'running') {
       this.busy = true;
-      try { await this.advanceCard(); } finally { this.busy = false; }
+      void this.advanceCard().finally(() => { this.busy = false; });
     }
+  }
+
+  // ── Card factory ───────────────────────────────────────────────────────────
+
+  /**
+   * Build a CardDef from a backend response:
+   * - outcome type (bomb / viral_boost / safe) comes from the backend
+   * - videoUrl comes from the backend's content_id (via contentPool)
+   * - safe card visual template is picked client-side (cosmetic only, not an outcome)
+   */
+  private buildCardFromResp(resp: BackendResp): CardDef {
+    const videoUrl = contentUrl(resp.content_id);
+
+    if (resp.outcome === 'bomb') {
+      return { ...BOMB_CARD, videoUrl };
+    }
+
+    if (resp.outcome === 'viral_boost') {
+      return { ...VIRAL_BOOST_CARD, videoUrl };
+    }
+
+    // Safe card: pick a random visual template (cosmetic, no outcome significance)
+    const config = SAFE_CARDS_CONFIG[this.visualRng.nextInt(SAFE_CARDS_CONFIG.length)];
+    const def    = this.styleCtrl.buildCardDef(config);
+    return { ...def, videoUrl };
   }
 
   // ── Round start ────────────────────────────────────────────────────────────
 
   private async beginRound(): Promise<void> {
-    this.resetRng(); // fresh seed per round (uses typed seed if present, else random)
+    // Reseed visual RNG for variety each round (not used for outcomes)
+    this.visualRng = new Rng(Math.floor(Math.random() * 1_000_000_000));
 
     if (!this.economy.canStartRound) {
       this.economy.balance = STARTING_BALANCE;
@@ -216,20 +247,42 @@ export class Game {
     }
 
     this.economy.startRound();
-    this.reel.startRound();
     this.setState('transitioning');
 
-    const firstCard = this.reel.nextCard();
-    this.renderer.primeCard(firstCard); // call play() now, in gesture context, before any await
+    // ── Backend: start action ────────────────────────────────────────────────
+    let res: BackendPlayResult;
+    try {
+      res = await backendPlay({
+        game:     this.backendGameState,
+        round:    null,
+        req:      { action: 'start', bet: this.economy.bet, bet_type: 'bet' },
+        config:   {},
+        god_data: null,
+      });
+    } catch (err) {
+      console.error('[Game] Backend error on start:', err);
+      this.ui.showError('Connection error — backend unreachable');
+      // Roll back economy deduction and return to intro
+      this.economy.onBomb();
+      this.economy.balance += this.economy.bet;
+      this.setState('intro');
+      return;
+    }
+
+    this.backendGameState  = res.game;
+    this.backendRoundState = res.round;
+
+    const firstCard = this.buildCardFromResp(res.resp);
+    // primeCard: in gesture context (unlockAutoplay was called before the await)
+    this.renderer.primeCard(firstCard);
     await this.renderer.transitionTo(firstCard);
 
-    if (firstCard.type === 'bomb') {
+    if (res.resp.outcome === 'bomb') {
       await this.triggerBomb();
     } else {
-      // Safe or viral_boost — apply multiplier (viral_boost uses its own override)
-      this.economy.onSafeCard(firstCard.multiplierOverride);
-      if (this.economy.isMaxWin) {
-        this.triggerMaxWin();
+      this.economy.setRoundValueFromBackend(res.resp.acc, res.resp.step);
+      if (res.resp.max_reached || res.resp.ended_by === 'maxwin') {
+        this.triggerMaxWin(res.resp.acc);
       } else {
         this.setState('running');
       }
@@ -242,17 +295,36 @@ export class Game {
     if (this.state !== 'running') return;
     this.setState('transitioning');
 
-    const card = this.reel.nextCard();
-    this.renderer.primeCard(card); // call play() now, in gesture context, before any await
+    // ── Backend: swipe action ────────────────────────────────────────────────
+    let res: BackendPlayResult;
+    try {
+      res = await backendPlay({
+        game:     this.backendGameState,
+        round:    this.backendRoundState,
+        req:      { action: 'swipe' },
+        config:   {},
+        god_data: null,
+      });
+    } catch (err) {
+      console.error('[Game] Backend error on swipe:', err);
+      this.ui.showError('Connection error — backend unreachable');
+      this.setState('running');
+      return;
+    }
+
+    this.backendGameState  = res.game;
+    this.backendRoundState = res.round;
+
+    const card = this.buildCardFromResp(res.resp);
+    this.renderer.primeCard(card);
     await this.renderer.transitionTo(card);
 
-    if (card.type === 'bomb') {
+    if (res.resp.outcome === 'bomb') {
       await this.triggerBomb();
     } else {
-      // Safe or viral_boost — pass the override multiplier if present
-      this.economy.onSafeCard(card.multiplierOverride);
-      if (this.economy.isMaxWin) {
-        this.triggerMaxWin();
+      this.economy.setRoundValueFromBackend(res.resp.acc, res.resp.step);
+      if (res.resp.max_reached || res.resp.ended_by === 'maxwin') {
+        this.triggerMaxWin(res.resp.acc);
       } else {
         this.setState('running');
       }
@@ -261,10 +333,52 @@ export class Game {
 
   // ── Cashout ────────────────────────────────────────────────────────────────
 
-  private handleCashout(): void {
+  private async handleCashout(): Promise<void> {
     if (this.state !== 'running') return;
+    if (this.busy) return;
+    this.busy = true;
 
-    const gross = this.economy.cashout(); // total FUN added to balance
+    try {
+      // ── Backend: cashout action ──────────────────────────────────────────
+      let res: BackendPlayResult;
+      try {
+        res = await backendPlay({
+          game:     this.backendGameState,
+          round:    this.backendRoundState,
+          req:      { action: 'cashout' },
+          config:   {},
+          god_data: null,
+        });
+      } catch (err) {
+        console.error('[Game] Backend error on cashout:', err);
+        this.ui.showError('Connection error — cashout failed, please retry');
+        return;
+      }
+
+      this.backendGameState  = res.game;
+      this.backendRoundState = null;
+
+      const gross = res.resp.acc;
+      this.economy.applyCashoutFromBackend(gross);
+      this.setState('win');
+
+      this.renderer.celebrateCashout();
+      this.ui.setBalance(this.economy.balance);
+      this.ui.clearRoundHud();
+      this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
+
+      setTimeout(() => {
+        this.ui.showPopupWin(gross, this.economy.balance);
+      }, 650);
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  // ── Max win (forced cashout at ×500 cap) ───────────────────────────────────
+
+  private triggerMaxWin(acc: number): void {
+    this.economy.applyCashoutFromBackend(acc);
     this.setState('win');
 
     this.renderer.celebrateCashout();
@@ -273,23 +387,7 @@ export class Game {
     this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
 
     setTimeout(() => {
-      this.ui.showPopupWin(gross, this.economy.balance);
-    }, 650);
-  }
-
-  // ── Max win (forced cashout at ×500 cap) ───────────────────────────────────
-
-  private triggerMaxWin(): void {
-    const gross = this.economy.cashout();
-    this.setState('win'); // locks swipe input immediately
-
-    this.renderer.celebrateCashout();
-    this.ui.setBalance(this.economy.balance);
-    this.ui.clearRoundHud();
-    this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
-
-    setTimeout(() => {
-      this.ui.showPopupMaxWin(gross, this.economy.balance);
+      this.ui.showPopupMaxWin(acc, this.economy.balance);
     }, 650);
   }
 
@@ -308,6 +406,8 @@ export class Game {
     this.ui.clearRoundHud();
     this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
 
+    this.backendRoundState = null;
+
     await delay(950);
     this.ui.showPopupLose(this.economy.balance, this.economy.bet);
   }
@@ -319,26 +419,7 @@ export class Game {
       this.economy.balance = STARTING_BALANCE;
       this.ui.setBalance(this.economy.balance);
     }
-    // Clear seed so the next round is random by default
-    // (player can retype a seed before swiping to reproduce a specific round)
-    this.ui.seedInput.value = '';
     this.setState('intro');
-  }
-
-  // ── RNG reset ──────────────────────────────────────────────────────────────
-
-  private resetRng(): void {
-    const raw  = parseInt(this.ui.seedInput.value.trim(), 10);
-    const seed = (this.ui.seedInput.value.trim() === '' || isNaN(raw) || raw <= 0)
-      ? Math.floor(Math.random() * 1_000_000_000)
-      : raw;
-
-    this.ui.seedInput.value = String(seed);
-    console.log('Round seed:', seed);
-
-    this.rng     = new Rng(seed);
-    this.outCtrl = new OutcomeController(this.rng);
-    this.reel    = new ReelEngine(this.rng, this.outCtrl);
   }
 }
 
