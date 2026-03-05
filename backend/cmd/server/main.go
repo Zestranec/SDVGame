@@ -40,36 +40,13 @@ func main() {
 		slog.Info("config_loaded", "event", "config_loaded", "path", cfgPath)
 	}
 
-	methods := map[string]jsonrpc.Handler{
-		// ── Runner-compatible methods ─────────────────────────────────────────
-		// These allow the frontend (and automated tests) to talk Runner-style
-		// JSON-RPC to this backend without a real HyperHive Runner.
-		// In production the Runner sits in front and calls game-function /api
-		// with the game-function play contract directly.
-
-		"init": func(ctx context.Context, raw json.RawMessage) (any, error) {
-			return handleRunnerInit(ctx, raw, cfg)
-		},
-
-		"info": func(ctx context.Context, raw json.RawMessage) (any, error) {
-			return handleRunnerInfo(ctx, raw)
-		},
-
-		// ── play: accept both Runner-style and game-function-style params ─────
-		// Runner-style  : {token, state_lock, req:{action,bet,bet_type}}
-		// Game-fn style : {token, game, round, req, config, god_data}
-		// Detection     : presence of non-empty "state_lock" field.
+	// ── /api — game-function endpoint (production contract) ─────────────────
+	// Accepts only JSON-RPC method "play" with game-function-style params:
+	//   {token, game, round, req, config, god_data}
+	// Returns: {final, finance, game, round, resp}
+	// The real HyperHive Runner calls this endpoint; the frontend never does.
+	gameFnMethods := map[string]jsonrpc.Handler{
 		"play": func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var probe struct {
-				StateLock string `json:"state_lock"`
-			}
-			_ = json.Unmarshal(raw, &probe)
-
-			if probe.StateLock != "" {
-				return handleRunnerPlay(ctx, raw, cfg, rngURL, godMode)
-			}
-
-			// Legacy game-function format
 			var params game.PlayParams
 			if err := json.Unmarshal(raw, &params); err != nil {
 				return nil, &game.PlayError{Code: -32602, Message: fmt.Sprintf("invalid params: %v", err)}
@@ -79,10 +56,26 @@ func main() {
 		},
 	}
 
-	rpcHandler := jsonrpc.Serve("/api", methods)
+	// ── /dev-api — Runner emulation for local development ────────────────────
+	// Accepts Runner-style JSON-RPC: init / info / play({token,state_lock,req}).
+	// Enabled only when ENABLE_DEV_RUNNER=1.  Never expose in production.
+	devRunnerMethods := map[string]jsonrpc.Handler{
+		"init": func(ctx context.Context, raw json.RawMessage) (any, error) {
+			return handleRunnerInit(ctx, raw, cfg)
+		},
+		"info": func(ctx context.Context, raw json.RawMessage) (any, error) {
+			return handleRunnerInfo(ctx, raw)
+		},
+		"play": func(ctx context.Context, raw json.RawMessage) (any, error) {
+			return handleRunnerPlay(ctx, raw, cfg, rngURL, godMode)
+		},
+	}
+
+	gameFnHandler := jsonrpc.Serve("/api", gameFnMethods)
+	devRPCHandler := jsonrpc.Serve("/dev-api", devRunnerMethods)
 
 	mux := http.NewServeMux()
-	mux.Handle("/api",     loggingMiddleware(corsMiddleware(rpcHandler)))
+	mux.Handle("/api",     loggingMiddleware(corsMiddleware(gameFnHandler)))
 	mux.Handle("/options", loggingMiddleware(corsMiddleware(http.HandlerFunc(makeOptionsHandler(cfg)))))
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -90,11 +83,19 @@ func main() {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
+	if os.Getenv("ENABLE_DEV_RUNNER") == "1" {
+		mux.Handle("/dev-api", loggingMiddleware(corsMiddleware(devRPCHandler)))
+		slog.Info("dev_runner_enabled",
+			"event",    "dev_runner_enabled",
+			"endpoint", "/dev-api",
+		)
+	}
+
 	addr := ":" + port
 	slog.Info("server_starting",
-		"event", "server_starting",
-		"addr", addr,
-		"rng_url", rngURL,
+		"event",    "server_starting",
+		"addr",     addr,
+		"rng_url",  rngURL,
 		"god_mode", godMode,
 	)
 	if err := http.ListenAndServe(addr, mux); err != nil {
@@ -104,9 +105,9 @@ func main() {
 }
 
 // ── Dev runner: in-memory session store ───────────────────────────────────────
-// Implements a minimal HyperHive Runner shim so the frontend can use
-// Runner JSON-RPC (init / info / play) against this backend directly in dev.
-// Production deployments use a real Runner that calls game-function internally.
+// Implements a minimal HyperHive Runner shim exposed on /dev-api when
+// ENABLE_DEV_RUNNER=1.  Production deployments must NOT set this flag —
+// the real Runner calls /api (game-function) directly.
 
 type devSessionEntry struct {
 	Token   string
