@@ -1,25 +1,26 @@
-# ── Build stage ───────────────────────────────────────────────────────────────
 FROM golang:1.21-alpine AS builder
 
-WORKDIR /app
+WORKDIR /build
 
-COPY go.mod ./
+COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o /adhd-backend ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o server ./cmd/server
 
-# ── Runtime stage ─────────────────────────────────────────────────────────────
+# ── Runtime image ──────────────────────────────────────────────────────────────
 FROM alpine:3.19
+
+RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
 
-COPY --from=builder /adhd-backend /adhd-backend
+COPY --from=builder /build/server ./server
+COPY config.yml ./
+
+ENV PORT=80
+ENV CONFIG_FILE=/app/config.yml
 
 EXPOSE 80
 
-ENV PORT=80
-ENV RNG_URL=http://localhost:4002/api
-ENV ENABLE_GOD_MODE=0
-
-ENTRYPOINT ["/adhd-backend"]
+CMD ["./server"]

@@ -6,11 +6,16 @@ import { INTRO_CARD, BOMB_CARD, VIRAL_BOOST_CARD, type CardDef } from './Card';
 import { LoadingScene, LOADING_MIN_MS } from './LoadingScene';
 import { CardStyleController } from './CardStyleController';
 import { SAFE_CARDS_CONFIG } from './config/safeCards';
-import { backendPlay, fetchOptions, type BackendResp, type BackendPlayResult } from './backendApi';
 import { contentUrl, allSafeUrls } from './contentPool';
 import { gameOptions } from './GameOptions';
 import { formatAmount } from './moneyFormat';
-import { parseTokenFromUrl, showFatalError } from './runnerClient';
+import {
+  RunnerClient,
+  type GameResp,
+  toBigInt,
+  parseTokenFromUrl,
+  showFatalError,
+} from './runnerClient';
 
 export type GameState = 'loading' | 'intro' | 'running' | 'transitioning' | 'win' | 'lose';
 
@@ -84,6 +89,9 @@ export class Game {
   /** Token from URL ?token=... */
   private readonly token: string;
 
+  /** Runner JSON-RPC client — single source of truth for session state. */
+  private runner!: RunnerClient;
+
   private economy: Economy;
   private renderer: Renderer;
   private ui: Ui;
@@ -94,15 +102,13 @@ export class Game {
   private visualRng: Rng = new Rng(Math.floor(Math.random() * 1_000_000_000));
   private styleCtrl = new CardStyleController();
 
-  // Backend round state — persisted across swipes within one round.
-  // The Go game engine is stateless; we pass these back on each play call.
-  private backendGameState: unknown = {};
-  private backendRoundState: unknown = null;
+  /** Info polling handle — refreshes balance/freebets from runner every ~8 s. */
+  private infoTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     const token = parseTokenFromUrl();
     if (!token) {
-      showFatalError('Missing token in URL (?token=…).\nBackend init cannot start.');
+      showFatalError('Missing token in URL (?token=…).\nRunner init cannot start.');
       this.token    = '';
       this.economy  = new Economy(0n);
       this.renderer = new Renderer(canvas);
@@ -112,7 +118,8 @@ export class Game {
     }
 
     this.token    = token;
-    this.economy  = new Economy(0n);   // overwritten after /options
+    this.runner   = new RunnerClient(token);
+    this.economy  = new Economy(0n);   // overwritten after runner init
     this.renderer = new Renderer(canvas);
     this.ui       = new Ui();
 
@@ -138,14 +145,6 @@ export class Game {
   /** Currently selected bet in subunits. */
   private get currentBet(): bigint {
     return gameOptions.selectedBet;
-  }
-
-  /**
-   * Convert a bigint subunit bet to the float (whole-unit) value the Go backend
-   * expects in Req.Bet.  e.g. 1000 cents / 100 subunits = 10.0 (USD).
-   */
-  private toBackendBet(betInt: bigint): number {
-    return Number(betInt) / gameOptions.currency.subunits;
   }
 
   /** Compute the display multiplier from backend acc relative to bet×houseEdge. */
@@ -179,7 +178,30 @@ export class Game {
     }
   }
 
-  // ── Boot (loading screen + GET /options) ──────────────────────────────────
+  // ── Info polling ──────────────────────────────────────────────────────────
+
+  private startInfoPolling(): void {
+    if (this.infoTimer) return;
+    this.infoTimer = setInterval(() => void this.pollInfo(), 8000);
+  }
+
+  private async pollInfo(): Promise<void> {
+    try {
+      const res     = await this.runner.info();
+      const changes = gameOptions.mergeFromInfo(res);
+      if (changes.balanceChanged) {
+        this.economy.balance = gameOptions.balance;
+        this.ui.setBalance(this.economy.balance);
+      }
+      if (import.meta.env.DEV && (changes.balanceChanged || changes.currencyChanged || changes.betsChanged)) {
+        console.debug('[Runner] info poll changes:', changes);
+      }
+    } catch (err) {
+      if (import.meta.env.DEV) console.warn('[Runner] info poll failed:', err);
+    }
+  }
+
+  // ── Boot (loading screen + Runner init) ───────────────────────────────────
 
   private async boot(): Promise<void> {
     const startTime = performance.now();
@@ -192,20 +214,20 @@ export class Game {
     }, 16);
 
     try {
-      const [optionsResult] = await Promise.all([
-        fetchOptions(this.token),
+      const [initResult] = await Promise.all([
+        this.runner.init(),
         scene.loadAssets(),
         delay(LOADING_MIN_MS),
       ]);
 
-      gameOptions.populateFromInit(optionsResult);
+      gameOptions.populateFromInit(initResult);
       this.economy = new Economy(gameOptions.balance);
       this.ui.setCurrencyConfig(gameOptions.currency, gameOptions.feDecimals);
 
     } catch (err) {
       clearInterval(ticker);
       scene.destroy();
-      showFatalError(`Backend init failed:\n${String(err)}`);
+      showFatalError(`Runner init failed:\n${String(err)}`);
       return;
     }
 
@@ -216,6 +238,7 @@ export class Game {
     scene.destroy();
     this.ui.setBalance(this.economy.balance);
     this.ui.setCurrentBet(gameOptions.selectedBet);
+    this.startInfoPolling();
     this.setState('intro');
   }
 
@@ -302,7 +325,7 @@ export class Game {
    * - videoUrl comes from the backend's content_id (via contentPool)
    * - safe card visual template is picked client-side (cosmetic only, not an outcome)
    */
-  private buildCardFromResp(resp: BackendResp): CardDef {
+  private buildCardFromResp(resp: GameResp): CardDef {
     const videoUrl = contentUrl(resp.content_id);
 
     if (resp.outcome === 'bomb') {
@@ -325,39 +348,42 @@ export class Game {
     // Reseed visual RNG for variety each round (not used for outcomes)
     this.visualRng = new Rng(Math.floor(Math.random() * 1_000_000_000));
 
-    const bet = this.currentBet;
+    const bet      = this.currentBet;
+    const betType  = gameOptions.shouldUseFreebet() ? 'freebet' : 'bet';
+    const betValue = betType === 'freebet' ? gameOptions.getFreebetBet() : bet;
 
     if (!this.economy.canAfford(bet)) {
-      // Balance insufficient: show a toast and stay on intro
       this.ui.showError('Insufficient balance. Please top up.');
       return;
     }
 
-    this.economy.startRound(bet);
+    this.economy.onRoundStart();
     this.setState('transitioning');
 
-    // ── Backend: start action ────────────────────────────────────────────────
-    let res: BackendPlayResult;
+    // ── Runner: start action ─────────────────────────────────────────────────
+    let res;
     try {
-      res = await backendPlay({
-        token:    this.token,
-        game:     this.backendGameState,
-        round:    null,
-        req:      { action: 'start', bet: this.toBackendBet(bet), bet_type: 'bet' },
-        config:   {},
-        god_data: null,
+      res = await this.runner.play({
+        action:   'start',
+        bet:      Number(betValue),
+        bet_type: betType,
       });
     } catch (err) {
-      console.error('[Game] Backend error on start:', err);
+      console.error('[Game] Runner error on start:', err);
       this.ui.showError(`Connection error — ${String(err)}`);
-      // Refund the deducted bet since the round didn't start
-      this.economy.balance += bet;
+      this.economy.onRoundStart(); // reset partial state
       this.setState('intro');
       return;
     }
 
-    this.backendGameState  = res.game;
-    this.backendRoundState = res.round;
+    // Runner is authoritative for balance after each play
+    this.economy.balance = toBigInt(res.balance);
+
+    if (!res.resp) {
+      this.ui.showError('Invalid runner response (missing resp).');
+      this.setState('intro');
+      return;
+    }
 
     const firstCard = this.buildCardFromResp(res.resp);
     this.renderer.primeCard(firstCard);
@@ -366,14 +392,14 @@ export class Game {
     const accCents = BigInt(res.resp.acc_cents);
 
     if (res.resp.outcome === 'bomb') {
-      await this.triggerBomb();
+      await this.triggerBomb(toBigInt(res.balance));
     } else {
       // Preload 2 random safe videos now that the network is free.
       // Only safe URLs are chosen — never bomb/buff — so this leaks nothing.
       this.preloadRandomSafe(2);
       this.economy.setRoundValueFromBackend(accCents, res.resp.step);
       if (res.resp.max_reached || res.resp.ended_by === 'maxwin') {
-        this.triggerMaxWin(accCents);
+        this.triggerMaxWin(accCents, toBigInt(res.balance));
       } else {
         this.setState('running');
       }
@@ -386,26 +412,24 @@ export class Game {
     if (this.state !== 'running') return;
     this.setState('transitioning');
 
-    // ── Backend: swipe action ────────────────────────────────────────────────
-    let res: BackendPlayResult;
+    // ── Runner: swipe action ─────────────────────────────────────────────────
+    let res;
     try {
-      res = await backendPlay({
-        token:    this.token,
-        game:     this.backendGameState,
-        round:    this.backendRoundState,
-        req:      { action: 'swipe' },
-        config:   {},
-        god_data: null,
-      });
+      res = await this.runner.play({ action: 'swipe' });
     } catch (err) {
-      console.error('[Game] Backend error on swipe:', err);
+      console.error('[Game] Runner error on swipe:', err);
       this.ui.showError(`Connection error — ${String(err)}`);
       this.setState('running');
       return;
     }
 
-    this.backendGameState  = res.game;
-    this.backendRoundState = res.round;
+    this.economy.balance = toBigInt(res.balance);
+
+    if (!res.resp) {
+      this.ui.showError('Invalid runner response (missing resp).');
+      this.setState('running');
+      return;
+    }
 
     const card = this.buildCardFromResp(res.resp);
     this.renderer.primeCard(card);
@@ -414,13 +438,13 @@ export class Game {
     const accCents = BigInt(res.resp.acc_cents);
 
     if (res.resp.outcome === 'bomb') {
-      await this.triggerBomb();
+      await this.triggerBomb(toBigInt(res.balance));
     } else {
       // Preload 2 random safe videos while the user reads the current card.
       this.preloadRandomSafe(2);
       this.economy.setRoundValueFromBackend(accCents, res.resp.step);
       if (res.resp.max_reached || res.resp.ended_by === 'maxwin') {
-        this.triggerMaxWin(accCents);
+        this.triggerMaxWin(accCents, toBigInt(res.balance));
       } else {
         this.setState('running');
       }
@@ -435,38 +459,41 @@ export class Game {
     this.busy = true;
 
     try {
-      // ── Backend: cashout action ──────────────────────────────────────────
-      let res: BackendPlayResult;
+      // ── Runner: cashout action ────────────────────────────────────────────
+      let res;
       try {
-        res = await backendPlay({
-          token:    this.token,
-          game:     this.backendGameState,
-          round:    this.backendRoundState,
-          req:      { action: 'cashout' },
-          config:   {},
-          god_data: null,
-        });
+        res = await this.runner.play({ action: 'cashout' });
       } catch (err) {
-        console.error('[Game] Backend error on cashout:', err);
+        console.error('[Game] Runner error on cashout:', err);
         this.ui.showError('Cashout failed — please retry');
         return;
       }
 
-      this.backendGameState  = res.game;
-      this.backendRoundState = null;
+      if (!res.resp) {
+        this.ui.showError('Invalid runner response on cashout.');
+        return;
+      }
 
-      const accCents = BigInt(res.resp.acc_cents);
-      const gross    = this.economy.applyCashoutFromBackend(accCents);
+      const gross      = BigInt(res.resp.acc_cents);
+      const newBalance = toBigInt(res.balance);
+
+      this.economy.balance    = newBalance;
+      this.economy.roundValue = 0n;
+      this.economy.cardCount  = 0;
 
       this.setState('win');
       this.renderer.celebrateCashout();
-      this.ui.setBalance(this.economy.balance);
+      this.ui.setBalance(newBalance);
       this.ui.clearRoundHud();
       this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
 
       setTimeout(() => {
-        this.ui.showPopupWin(gross, this.economy.balance);
+        this.ui.showPopupWin(gross, newBalance);
       }, 650);
+
+      // Refresh balance authoritatively from info after round end
+      void this.pollInfo();
+
     } finally {
       this.busy = false;
     }
@@ -474,23 +501,27 @@ export class Game {
 
   // ── Max win (forced cashout at ×500 cap) ───────────────────────────────────
 
-  private triggerMaxWin(accCents: bigint): void {
-    const gross = this.economy.applyCashoutFromBackend(accCents);
-    this.setState('win');
+  private triggerMaxWin(accCents: bigint, newBalance: bigint): void {
+    this.economy.balance    = newBalance;
+    this.economy.roundValue = 0n;
+    this.economy.cardCount  = 0;
 
+    this.setState('win');
     this.renderer.celebrateCashout();
-    this.ui.setBalance(this.economy.balance);
+    this.ui.setBalance(newBalance);
     this.ui.clearRoundHud();
     this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
 
     setTimeout(() => {
-      this.ui.showPopupMaxWin(gross, this.economy.balance);
+      this.ui.showPopupMaxWin(accCents, newBalance);
     }, 650);
+
+    void this.pollInfo();
   }
 
   // ── Bomb ───────────────────────────────────────────────────────────────────
 
-  private async triggerBomb(): Promise<void> {
+  private async triggerBomb(newBalance: bigint): Promise<void> {
     this.setState('lose');
 
     this.renderer.shake(22, 32);
@@ -498,15 +529,16 @@ export class Game {
     this.ui.flashRed(550);
     this.ui.glitchEffect(650);
 
+    this.economy.balance = newBalance;
     this.economy.onBomb();
-    this.ui.setBalance(this.economy.balance);
+    this.ui.setBalance(newBalance);
     this.ui.clearRoundHud();
     this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
 
-    this.backendRoundState = null;
-
     await delay(950);
     this.ui.showPopupLose(this.economy.balance, this.currentBet);
+
+    void this.pollInfo();
   }
 
   // ── Popup button ───────────────────────────────────────────────────────────

@@ -1,13 +1,8 @@
 /**
  * Economy — tracks per-session bigint monetary state.
  *
- * Balance is managed locally because the game backend is a pure game engine
- * that does not own wallets:
- *   - Starting balance comes from GET /options.
- *   - Bet is deducted at round start (startRound).
- *   - Win is credited at cashout/maxwin (applyCashoutFromBackend).
- *
- * Round value is driven by backend resp.acc_cents.
+ * Balance is authoritative from the Runner (set by Game.ts after each runner response).
+ * Round value is driven by runner resp.acc_cents.
  * All values are in the currency's minimal subunit (bigint).
  * Formatting for display is handled by moneyFormat.ts, not here.
  */
@@ -27,7 +22,7 @@ export const SWIPE_COST = 10;
 // ── Economy class ─────────────────────────────────────────────────────────────
 
 export class Economy {
-  /** Current wallet balance in subunits (bigint). */
+  /** Current wallet balance in subunits (bigint). Set from runner responses. */
   balance: bigint;
   /** Current round's accumulated value in subunits (bigint). 0 when no round active. */
   roundValue: bigint = 0n;
@@ -44,11 +39,10 @@ export class Economy {
   }
 
   /**
-   * Deduct `bet` from balance at round start.
-   * The round value is subsequently driven by backend responses.
+   * Reset round state at round start.
+   * Balance is managed externally via runner responses — not touched here.
    */
-  startRound(bet: bigint): void {
-    this.balance -= bet;
+  onRoundStart(): void {
     this.roundValue = 0n;
     this.cardCount  = 0;
   }
@@ -62,20 +56,32 @@ export class Economy {
     this.cardCount  = step;
   }
 
+  /** Bomb hit — forfeit the round value. Balance is set externally. */
+  onBomb(): void {
+    this.roundValue = 0n;
+    this.cardCount  = 0;
+  }
+
+  // ── Kept for backward compat (Simulation.ts / tests) ──────────────────────
+
+  /**
+   * Deduct `bet` from balance at round start.
+   * @deprecated Use onRoundStart() in Runner flow — balance comes from runner.
+   */
+  startRound(bet: bigint): void {
+    this.balance -= bet;
+    this.roundValue = 0n;
+    this.cardCount  = 0;
+  }
+
   /**
    * Credit the backend-authoritative win amount to balance.
-   * Clears the round state and returns the gross amount credited.
+   * @deprecated In Runner flow, set economy.balance directly from runner response.
    */
   applyCashoutFromBackend(accCents: bigint): bigint {
     this.balance   += accCents;
     this.roundValue = 0n;
     this.cardCount  = 0;
     return accCents;
-  }
-
-  /** Bomb hit — forfeit the round value (bet already deducted). */
-  onBomb(): void {
-    this.roundValue = 0n;
-    this.cardCount  = 0;
   }
 }

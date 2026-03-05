@@ -15,7 +15,7 @@
 /// <reference types="vite/client" />
 
 const RUNNER_URL: string =
-  (import.meta.env.VITE_RUNNER_URL as string | undefined) ?? 'http://localhost:4000/api';
+  (import.meta.env.VITE_RUNNER_URL as string | undefined) ?? '/api';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
