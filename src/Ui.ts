@@ -1,7 +1,18 @@
 /**
  * Ui — manages all HTML overlay elements.
  * Pure DOM manipulation; no game logic here.
+ *
+ * All monetary parameters are bigint subunits.
+ * Formatting is delegated to moneyFormat.ts.
  */
+
+import {
+  type CurrencyOptions,
+  formatAmount,
+  countRequiredDecimals,
+  devAssertNoRounding,
+} from './moneyFormat';
+
 export class Ui {
   private balanceEl    = document.getElementById('balance-display')!;
   private roundValHud  = document.getElementById('round-val-hud')!;
@@ -20,22 +31,62 @@ export class Ui {
   private popupBalance  = document.getElementById('popup-balance')!;
   private popupBtn      = document.getElementById('popup-btn')! as HTMLButtonElement;
 
-  readonly seedInput   = document.getElementById('seed-input')! as HTMLInputElement;
-  readonly soundBtn    = document.getElementById('btn-sound')! as HTMLElement;
+  readonly seedInput = document.getElementById('seed-input')! as HTMLInputElement;
+  readonly soundBtn  = document.getElementById('btn-sound')! as HTMLElement;
+
+  // Currency config — set once at game init via setCurrencyConfig()
+  private currency: CurrencyOptions = { subunits: 100, exponent: 2, code: 'FUN' };
+  private feDecimals  = 2;
+
+  // ── Currency config ───────────────────────────────────────────────────────
+
+  /** Called once at game init with server-provided currency options. */
+  setCurrencyConfig(currency: CurrencyOptions, feDecimals: number): void {
+    this.currency   = currency;
+    this.feDecimals = feDecimals;
+  }
+
+  // ── Internal helpers ──────────────────────────────────────────────────────
+
+  /** Format an amount for bet display (no trailing-zero trimming). */
+  private fmtBet(valueInt: bigint): string {
+    return formatAmount(valueInt, this.currency, this.feDecimals, false);
+  }
+
+  /** Format a win/round-value amount (trim trailing zeros, min feDecimals). */
+  private fmtWin(valueInt: bigint): string {
+    const s = formatAmount(valueInt, this.currency, this.feDecimals, true);
+    devAssertNoRounding('win', valueInt, this.currency, s);
+    return s;
+  }
+
+  /** Format a balance (expand decimals if wallet requires more for exact display). */
+  private fmtBalance(valueInt: bigint): string {
+    const required = countRequiredDecimals(valueInt, BigInt(this.currency.subunits));
+    const decimals  = Math.max(this.feDecimals, required);
+    const s = formatAmount(valueInt, this.currency, decimals, true);
+    devAssertNoRounding('balance', valueInt, this.currency, s);
+    return s;
+  }
+
+  private ccy(str: string): string {
+    return this.currency.code ? `${str} ${this.currency.code}` : str;
+  }
 
   // ── Balance ──────────────────────────────────────────────────────────────
 
-  setBalance(value: number): void {
-    this.balanceEl.textContent = value.toFixed(2);
+  setBalance(balanceInt: bigint): void {
+    this.balanceEl.textContent = this.fmtBalance(balanceInt);
   }
 
   // ── Round HUD ────────────────────────────────────────────────────────────
 
-  setRoundValue(value: number, multiplier: number): void {
-    this.roundValHud.textContent  = value.toFixed(2);
-    this.roundValBig.textContent  = value.toFixed(2);
+  setRoundValue(valueInt: bigint, multiplier: number): void {
+    const str = this.fmtWin(valueInt);
+    this.roundValHud.textContent  = str;
+    this.roundValBig.textContent  = str;
     this.multiplierEl.textContent = `×${multiplier.toFixed(2)}`;
-    this.cashoutBtn.textContent   = `💰 Take Profit (+${value.toFixed(2)})`;
+    this.cashoutBtn.textContent   = `💰 Take Profit (+${str})`;
   }
 
   clearRoundHud(): void {
@@ -48,7 +99,7 @@ export class Ui {
     this.roundValBig.style.display  = opts.roundValue ? 'block' : 'none';
     this.multiplierEl.style.display = opts.roundValue ? 'block' : 'none';
     this.cashoutBtn.style.display   = opts.cashout    ? 'block' : 'none';
-    this.swipeHint.style.display    = opts.swipeHint  ? 'flex' : 'none';
+    this.swipeHint.style.display    = opts.swipeHint  ? 'flex'  : 'none';
     if (opts.hintText) this.swipeText.textContent = opts.hintText;
   }
 
@@ -60,38 +111,49 @@ export class Ui {
 
   // ── Popup ────────────────────────────────────────────────────────────────
 
-  showPopupWin(cashoutAmount: number, balance: number): void {
+  showPopupWin(cashoutInt: bigint, balanceInt: bigint): void {
+    const win = this.fmtWin(cashoutInt);
+    const bal = this.fmtBalance(balanceInt);
+    devAssertNoRounding('popup-win', cashoutInt, this.currency,
+      formatAmount(cashoutInt, this.currency, this.feDecimals, true));
+
     this.popupTitle.textContent    = 'NICE!';
-    this.popupAmount.textContent   = `+${cashoutAmount.toFixed(2)} FUN`;
+    this.popupAmount.textContent   = `+${this.ccy(win)}`;
     this.popupAmount.className     = 'win';
     this.popupAmount.style.display = 'block';
     this.popupSubtitle.textContent = 'Safe feed. Take the FUN and keep scrolling.';
-    this.popupBalance.textContent  = `Balance: ${balance.toFixed(2)} FUN`;
+    this.popupBalance.textContent  = `Balance: ${this.ccy(bal)}`;
     this.popupBtn.textContent      = 'COLLECT';
     this.popupBtn.className        = 'popup-btn success';
     this._showPopup();
   }
 
-  showPopupMaxWin(cashoutAmount: number, balance: number): void {
+  showPopupMaxWin(cashoutInt: bigint, balanceInt: bigint): void {
+    const win = this.fmtWin(cashoutInt);
+    const bal = this.fmtBalance(balanceInt);
+
     this.popupTitle.textContent    = 'MAX WIN!';
-    this.popupAmount.textContent   = `+${cashoutAmount.toFixed(2)} FUN`;
+    this.popupAmount.textContent   = `+${this.ccy(win)}`;
     this.popupAmount.className     = 'win';
     this.popupAmount.style.display = 'block';
     this.popupSubtitle.textContent = 'You hit the ×500 cap. Collect your winnings!';
-    this.popupBalance.textContent  = `Balance: ${balance.toFixed(2)} FUN`;
+    this.popupBalance.textContent  = `Balance: ${this.ccy(bal)}`;
     this.popupBtn.textContent      = 'COLLECT MAX WIN';
     this.popupBtn.className        = 'popup-btn success';
     this._showPopup();
   }
 
-  showPopupLose(balance: number, bet = 10): void {
+  showPopupLose(balanceInt: bigint, betInt: bigint): void {
+    const bet = this.fmtBet(betInt);
+    const bal = this.fmtBalance(balanceInt);
+
     this.popupTitle.textContent    = 'BUSTED';
-    this.popupAmount.textContent   = `-${bet.toFixed(2)} FUN`;
+    this.popupAmount.textContent   = `-${this.ccy(bet)}`;
     this.popupAmount.className     = 'lose';
     this.popupAmount.style.display = 'block';
     this.popupSubtitle.textContent = 'An agent caught you. Be careful next time.';
-    this.popupBalance.textContent  = `Balance: ${balance.toFixed(2)} FUN`;
-    this.popupBtn.textContent      = balance >= bet ? 'TRY AGAIN' : 'REFILL & PLAY';
+    this.popupBalance.textContent  = `Balance: ${this.ccy(bal)}`;
+    this.popupBtn.textContent      = balanceInt >= betInt ? 'TRY AGAIN' : 'REFILL & PLAY';
     this.popupBtn.className        = 'popup-btn danger';
     this._showPopup();
   }
@@ -99,7 +161,7 @@ export class Ui {
   showPopupBroke(): void {
     this.popupTitle.textContent    = 'BROKE!';
     this.popupAmount.style.display = 'none';
-    this.popupSubtitle.textContent = 'You ran out of FUN. Refilling to 1000.';
+    this.popupSubtitle.textContent = 'You ran out of FUN. Refilling to starting balance.';
     this.popupBalance.textContent  = '';
     this.popupBtn.textContent      = 'REFILL & PLAY';
     this.popupBtn.className        = 'popup-btn primary';
@@ -120,31 +182,27 @@ export class Ui {
 
   // ── Error toast ──────────────────────────────────────────────────────────
 
-  /**
-   * Show a brief red error toast at the top of the screen.
-   * Auto-dismisses after 3 seconds.
-   */
   showError(message: string): void {
     let toast = document.getElementById('error-toast') as HTMLElement | null;
     if (!toast) {
       toast = document.createElement('div');
       toast.id = 'error-toast';
       Object.assign(toast.style, {
-        position:     'fixed',
-        top:          '70px',
-        left:         '50%',
-        transform:    'translateX(-50%)',
-        background:   'rgba(180,20,20,0.92)',
-        color:        '#fff',
-        padding:      '10px 20px',
-        borderRadius: '8px',
-        fontSize:     '13px',
-        fontWeight:   '700',
-        zIndex:       '9999',
+        position:      'fixed',
+        top:           '70px',
+        left:          '50%',
+        transform:     'translateX(-50%)',
+        background:    'rgba(180,20,20,0.92)',
+        color:         '#fff',
+        padding:       '10px 20px',
+        borderRadius:  '8px',
+        fontSize:      '13px',
+        fontWeight:    '700',
+        zIndex:        '9999',
         pointerEvents: 'none',
-        textAlign:    'center',
-        maxWidth:     '80vw',
-        boxShadow:    '0 2px 12px rgba(0,0,0,0.5)',
+        textAlign:     'center',
+        maxWidth:      '80vw',
+        boxShadow:     '0 2px 12px rgba(0,0,0,0.5)',
       });
       document.body.appendChild(toast);
     }

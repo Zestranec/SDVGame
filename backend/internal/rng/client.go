@@ -4,9 +4,14 @@ package rng
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"time"
+
+	"adhd-backend/internal/logx"
 )
 
 // Draw holds two u32 values fetched for a single game draw step.
@@ -43,8 +48,13 @@ type rpcResp struct {
 
 // Fetch is the HTTP function used to call the RNG service.
 // Override in tests to inject mock responses.
-var Fetch = func(url string, body []byte) ([]byte, error) {
-	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+var Fetch = func(ctx context.Context, url string, body []byte) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +65,33 @@ var Fetch = func(url string, body []byte) ([]byte, error) {
 }
 
 // FetchDraw requests exactly 2 u32 values from the RNG service at rngURL.
-func FetchDraw(rngURL string) (Draw, error) {
+// It logs one structured line per call: event="rng_call_ok" or "rng_call_failed".
+func FetchDraw(ctx context.Context, rngURL string) (draw Draw, err error) {
+	start := time.Now()
+
+	defer func() {
+		latencyMs := time.Since(start).Milliseconds()
+		reqID := logx.RequestID(ctx)
+		if err != nil {
+			slog.ErrorContext(ctx, "rng_call_failed",
+				"event", "rng_call_failed",
+				"request_id", reqID,
+				"rng_url", rngURL,
+				"latency_ms", latencyMs,
+				"qty", 2,
+				"err", err.Error(),
+			)
+		} else {
+			slog.InfoContext(ctx, "rng_call_ok",
+				"event", "rng_call_ok",
+				"request_id", reqID,
+				"rng_url", rngURL,
+				"latency_ms", latencyMs,
+				"qty", 2,
+			)
+		}
+	}()
+
 	reqBody, err := json.Marshal(rpcReq{
 		JSONRPC: "2.0",
 		ID:      1,
@@ -66,7 +102,7 @@ func FetchDraw(rngURL string) (Draw, error) {
 		return Draw{}, err
 	}
 
-	respBody, err := Fetch(rngURL, reqBody)
+	respBody, err := Fetch(ctx, rngURL, reqBody)
 	if err != nil {
 		return Draw{}, err
 	}
@@ -76,7 +112,8 @@ func FetchDraw(rngURL string) (Draw, error) {
 		return Draw{}, err
 	}
 	if rr.Error != nil {
-		return Draw{}, fmt.Errorf("rng error %d: %s", rr.Error.Code, rr.Error.Message)
+		err = fmt.Errorf("rng error %d: %s", rr.Error.Code, rr.Error.Message)
+		return Draw{}, err
 	}
 
 	vals, err := parseUint32s(rr.Result)
@@ -84,7 +121,8 @@ func FetchDraw(rngURL string) (Draw, error) {
 		return Draw{}, err
 	}
 	if len(vals) < 2 {
-		return Draw{}, fmt.Errorf("rng returned %d values, need 2", len(vals))
+		err = fmt.Errorf("rng returned %d values, need 2", len(vals))
+		return Draw{}, err
 	}
 	return Draw{U1: vals[0], U2: vals[1]}, nil
 }
@@ -93,12 +131,10 @@ func FetchDraw(rngURL string) (Draw, error) {
 //   - array: [123, 456]
 //   - nested: {"values": [123, 456]}
 func parseUint32s(raw json.RawMessage) ([]uint32, error) {
-	// Try array first
 	var arr []uint32
 	if err := json.Unmarshal(raw, &arr); err == nil {
 		return arr, nil
 	}
-	// Try nested object
 	var obj struct {
 		Values []uint32 `json:"values"`
 	}

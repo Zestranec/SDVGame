@@ -8,14 +8,18 @@ const BACKEND_URL = 'http://localhost:4051/api';
 // ── Response types ────────────────────────────────────────────────────────────
 
 export interface BackendResp {
-  action:       string;
-  step:         number;
-  outcome:      'safe' | 'viral_boost' | 'bomb' | null;
-  applied_mult: number;
-  acc:          number;
-  content_id:   string;
-  ended_by:     string | null;
-  max_reached:  boolean;
+  action:               string;
+  step:                 number;
+  outcome:              'safe' | 'viral_boost' | 'bomb' | null;
+  /** Multiplier in basis points (10000 = 1.0000×). Null for bomb / cashout. */
+  applied_mult_bp:      number | null;
+  /** Human-friendly multiplier string with 2 decimals, e.g. "1.15" or "10.00". Null for bomb / cashout. */
+  applied_mult_display: string | null;
+  /** Round value in integer subunits (cents). Divide by 100 for display. */
+  acc_cents:            number;
+  content_id:           string;
+  ended_by:             string | null;
+  max_reached:          boolean;
 }
 
 export interface BackendPlayResult {

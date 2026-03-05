@@ -1,6 +1,6 @@
 import { Rng } from './Rng';
-import { Economy, STARTING_BALANCE, BET_MIN, BET_MAX, BET_STEP } from './Economy';
-import { Renderer, BetSelectorOpts } from './Renderer';
+import { Economy } from './Economy';
+import { Renderer } from './Renderer';
 import { Ui } from './Ui';
 import { INTRO_CARD, BOMB_CARD, VIRAL_BOOST_CARD, type CardDef } from './Card';
 import { LoadingScene, LOADING_MIN_MS } from './LoadingScene';
@@ -8,6 +8,8 @@ import { CardStyleController } from './CardStyleController';
 import { SAFE_CARDS_CONFIG } from './config/safeCards';
 import { backendPlay, type BackendResp, type BackendPlayResult } from './backendApi';
 import { contentUrl } from './contentPool';
+import { resolveRunnerOptions, type RunnerOptions } from './GameOptions';
+import { computeFeDecimals, formatAmount, devAssertNoRounding } from './moneyFormat';
 
 export type GameState = 'loading' | 'intro' | 'running' | 'transitioning' | 'win' | 'lose';
 
@@ -77,6 +79,15 @@ class SwipeInput {
 
 export class Game {
   private state: GameState = 'loading';
+
+  // Runner / server options
+  private readonly options: RunnerOptions;
+  /** Pre-computed FE decimals used for all monetary display. */
+  private readonly feDecimals: number;
+
+  // Selected bet: index into options.availableBets
+  private betIndex = 0;
+
   private economy: Economy;
   private renderer: Renderer;
   private ui: Ui;
@@ -92,9 +103,21 @@ export class Game {
   private backendRoundState: unknown = null;
 
   constructor(canvas: HTMLCanvasElement) {
-    this.economy  = new Economy();
+    this.options = resolveRunnerOptions();
+
+    // Compute FE display decimals from available bets + max possible wins (bet × 500)
+    const maxWins = this.options.availableBets.map(b => b * 500n);
+    this.feDecimals = computeFeDecimals(
+      this.options.availableBets,
+      maxWins,
+      this.options.currency,
+    );
+
+    this.economy  = new Economy(this.options.initialBalance);
     this.renderer = new Renderer(canvas);
     this.ui       = new Ui();
+
+    this.ui.setCurrencyConfig(this.options.currency, this.feDecimals);
 
     this.ui.onCashout(     () => void this.handleCashout());
     this.ui.onPopupButton( () => this.handlePopupButton());
@@ -111,6 +134,36 @@ export class Game {
 
     this.setState('loading');
     void this.boot();
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  /** Currently selected bet in subunits. */
+  private get currentBet(): bigint {
+    return this.options.availableBets[this.betIndex];
+  }
+
+  /**
+   * Convert a bigint subunit value to a float for sending to the backend
+   * (which currently expects Req.Bet as a float in whole units).
+   */
+  private toBackendBet(betInt: bigint): number {
+    return Number(betInt) / this.options.currency.subunits;
+  }
+
+  /** Compute the display multiplier from backend acc relative to bet×houseEdge. */
+  private computeMultiplier(): number {
+    const bet = this.currentBet;
+    if (bet === 0n) return 1;
+    // houseEdgeSeed = bet * 9500 / 10000 (integer cents)
+    const seed = (bet * 9500n) / 10000n;
+    if (seed === 0n) return 1;
+    return Number(this.economy.roundValue) / Number(seed);
+  }
+
+  /** Format a bet value for display in the bet selector. */
+  private formatBet(betInt: bigint): string {
+    return formatAmount(betInt, this.options.currency, this.feDecimals, false);
   }
 
   // ── Boot (loading screen) ─────────────────────────────────────────────────
@@ -151,21 +204,21 @@ export class Game {
       case 'intro': {
         this.swipe.setLocked(false);
         this.ui.hidePopup();
-        const betOpts: BetSelectorOpts = {
-          value:    this.economy.bet,
-          onChange: (v) => { this.economy.bet = v; },
-          min:      BET_MIN,
-          max:      BET_MAX,
-          step:     BET_STEP,
-        };
-        this.renderer.showCard(INTRO_CARD, { betOpts });
+        this.renderer.showCard(INTRO_CARD, {
+          betOpts: {
+            bets:        this.options.availableBets,
+            betIndex:    this.betIndex,
+            onBetChange: (i) => { this.betIndex = i; },
+            formatBet:   (v) => this.formatBet(v),
+          },
+        });
         this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
         break;
       }
 
       case 'running':
         this.swipe.setLocked(false);
-        this.ui.setRoundValue(this.economy.roundValue, this.economy.multiplier);
+        this.ui.setRoundValue(this.economy.roundValue, this.computeMultiplier());
         this.ui.setBalance(this.economy.balance);
         this.ui.showBottomBar({
           roundValue: true, cashout: true, swipeHint: true,
@@ -241,13 +294,21 @@ export class Game {
     // Reseed visual RNG for variety each round (not used for outcomes)
     this.visualRng = new Rng(Math.floor(Math.random() * 1_000_000_000));
 
-    if (!this.economy.canStartRound) {
-      this.economy.balance = STARTING_BALANCE;
+    const bet = this.currentBet;
+
+    if (!this.economy.canAfford(bet)) {
+      this.economy.balance = this.options.initialBalance;
       this.ui.setBalance(this.economy.balance);
     }
 
-    this.economy.startRound();
+    this.economy.startRound(bet);
     this.setState('transitioning');
+
+    // DEV: verify bet formatting is lossless
+    if (import.meta.env.DEV) {
+      devAssertNoRounding('bet', bet, this.options.currency,
+        this.formatBet(bet));
+    }
 
     // ── Backend: start action ────────────────────────────────────────────────
     let res: BackendPlayResult;
@@ -255,7 +316,7 @@ export class Game {
       res = await backendPlay({
         game:     this.backendGameState,
         round:    null,
-        req:      { action: 'start', bet: this.economy.bet, bet_type: 'bet' },
+        req:      { action: 'start', bet: this.toBackendBet(bet), bet_type: 'bet' },
         config:   {},
         god_data: null,
       });
@@ -264,7 +325,7 @@ export class Game {
       this.ui.showError('Connection error — backend unreachable');
       // Roll back economy deduction and return to intro
       this.economy.onBomb();
-      this.economy.balance += this.economy.bet;
+      this.economy.balance += bet;
       this.setState('intro');
       return;
     }
@@ -273,16 +334,17 @@ export class Game {
     this.backendRoundState = res.round;
 
     const firstCard = this.buildCardFromResp(res.resp);
-    // primeCard: in gesture context (unlockAutoplay was called before the await)
     this.renderer.primeCard(firstCard);
     await this.renderer.transitionTo(firstCard);
+
+    const accCents = BigInt(res.resp.acc_cents);
 
     if (res.resp.outcome === 'bomb') {
       await this.triggerBomb();
     } else {
-      this.economy.setRoundValueFromBackend(res.resp.acc, res.resp.step);
+      this.economy.setRoundValueFromBackend(accCents, res.resp.step);
       if (res.resp.max_reached || res.resp.ended_by === 'maxwin') {
-        this.triggerMaxWin(res.resp.acc);
+        this.triggerMaxWin(accCents);
       } else {
         this.setState('running');
       }
@@ -319,12 +381,14 @@ export class Game {
     this.renderer.primeCard(card);
     await this.renderer.transitionTo(card);
 
+    const accCents = BigInt(res.resp.acc_cents);
+
     if (res.resp.outcome === 'bomb') {
       await this.triggerBomb();
     } else {
-      this.economy.setRoundValueFromBackend(res.resp.acc, res.resp.step);
+      this.economy.setRoundValueFromBackend(accCents, res.resp.step);
       if (res.resp.max_reached || res.resp.ended_by === 'maxwin') {
-        this.triggerMaxWin(res.resp.acc);
+        this.triggerMaxWin(accCents);
       } else {
         this.setState('running');
       }
@@ -358,8 +422,22 @@ export class Game {
       this.backendGameState  = res.game;
       this.backendRoundState = null;
 
-      const gross = res.resp.acc;
-      this.economy.applyCashoutFromBackend(gross);
+      const accCents = BigInt(res.resp.acc_cents);
+
+      // DEV: verify balance formatting is lossless after cashout
+      if (import.meta.env.DEV) {
+        const newBalance = this.economy.balance + accCents;
+        const { formatAmount: fmt } = await import('./moneyFormat');
+        const required = import('./moneyFormat').then(m =>
+          m.countRequiredDecimals(newBalance, BigInt(this.options.currency.subunits)));
+        void required.then(req => {
+          const decimals = Math.max(this.feDecimals, req);
+          devAssertNoRounding('balance-postcashout', newBalance, this.options.currency,
+            fmt(newBalance, this.options.currency, decimals, true));
+        });
+      }
+
+      const gross = this.economy.applyCashoutFromBackend(accCents);
       this.setState('win');
 
       this.renderer.celebrateCashout();
@@ -377,8 +455,8 @@ export class Game {
 
   // ── Max win (forced cashout at ×500 cap) ───────────────────────────────────
 
-  private triggerMaxWin(acc: number): void {
-    this.economy.applyCashoutFromBackend(acc);
+  private triggerMaxWin(accCents: bigint): void {
+    const gross = this.economy.applyCashoutFromBackend(accCents);
     this.setState('win');
 
     this.renderer.celebrateCashout();
@@ -387,7 +465,7 @@ export class Game {
     this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
 
     setTimeout(() => {
-      this.ui.showPopupMaxWin(acc, this.economy.balance);
+      this.ui.showPopupMaxWin(gross, this.economy.balance);
     }, 650);
   }
 
@@ -409,14 +487,14 @@ export class Game {
     this.backendRoundState = null;
 
     await delay(950);
-    this.ui.showPopupLose(this.economy.balance, this.economy.bet);
+    this.ui.showPopupLose(this.economy.balance, this.currentBet);
   }
 
   // ── Popup button ───────────────────────────────────────────────────────────
 
   private handlePopupButton(): void {
-    if (this.economy.balance < this.economy.bet) {
-      this.economy.balance = STARTING_BALANCE;
+    if (!this.economy.canAfford(this.currentBet)) {
+      this.economy.balance = this.options.initialBalance;
       this.ui.setBalance(this.economy.balance);
     }
     this.setState('intro');

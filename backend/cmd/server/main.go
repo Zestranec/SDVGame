@@ -1,50 +1,105 @@
 package main
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"adhd-backend/internal/game"
 	"adhd-backend/internal/jsonrpc"
+	"adhd-backend/internal/logx"
 )
 
 func main() {
+	logx.New()
+
 	port := getEnv("PORT", "80")
 	rngURL := getEnv("RNG_URL", "http://localhost:4002/api")
 	godMode := os.Getenv("ENABLE_GOD_MODE") == "1"
 
 	if godMode {
-		log.Println("[ADHDoom] GOD MODE ENABLED")
+		slog.Info("god_mode_enabled", "event", "god_mode_enabled")
 	}
 
 	methods := map[string]jsonrpc.Handler{
-		"play": func(raw json.RawMessage) (any, error) {
+		"play": func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var params game.PlayParams
 			if err := json.Unmarshal(raw, &params); err != nil {
 				return nil, &game.PlayError{Code: -32602, Message: fmt.Sprintf("invalid params: %v", err)}
 			}
-			return game.Play(params, rngURL, godMode)
+			return game.Play(ctx, params, rngURL, godMode)
 		},
 	}
 
-	handler := jsonrpc.Serve("/api", methods)
+	rpcHandler := jsonrpc.Serve("/api", methods)
 
-	// Add CORS headers for local development / runner
 	mux := http.NewServeMux()
-	mux.Handle("/api", corsMiddleware(handler))
+	mux.Handle("/api", loggingMiddleware(corsMiddleware(rpcHandler)))
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
 
 	addr := ":" + port
-	log.Printf("[ADHDoom] listening on %s  rng=%s  godMode=%v", addr, rngURL, godMode)
+	slog.Info("server_starting",
+		"event", "server_starting",
+		"addr", addr,
+		"rng_url", rngURL,
+		"god_mode", godMode,
+	)
 	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatal(err)
+		slog.Error("server_fatal", "event", "server_fatal", "err", err)
+		os.Exit(1)
 	}
+}
+
+// loggingMiddleware generates a request_id, injects it into the context,
+// captures the response status, and logs one http_request line after the
+// handler returns.
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Honour an upstream-supplied ID, otherwise generate one.
+		reqID := r.Header.Get("X-Request-ID")
+		if reqID == "" {
+			b := make([]byte, 12)
+			_, _ = rand.Read(b)
+			reqID = hex.EncodeToString(b)
+		}
+
+		ctx := logx.WithRequestID(r.Context(), reqID)
+		r = r.WithContext(ctx)
+
+		rw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+		start := time.Now()
+
+		next.ServeHTTP(rw, r)
+
+		slog.InfoContext(ctx, "http_request",
+			"event", "http_request",
+			"request_id", reqID,
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", rw.status,
+			"latency_ms", time.Since(start).Milliseconds(),
+		)
+	})
+}
+
+// statusWriter wraps http.ResponseWriter to capture the written status code.
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (sw *statusWriter) WriteHeader(code int) {
+	sw.status = code
+	sw.ResponseWriter.WriteHeader(code)
 }
 
 func corsMiddleware(next http.Handler) http.Handler {

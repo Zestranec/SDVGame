@@ -1,6 +1,7 @@
 package game_test
 
 import (
+	"context"
 	"testing"
 
 	"adhd-backend/internal/game"
@@ -16,7 +17,7 @@ type rngQueue struct {
 
 func (q *rngQueue) install() func() {
 	orig := rng.Fetch
-	rng.Fetch = func(_ string, _ []byte) ([]byte, error) {
+	rng.Fetch = func(_ context.Context, _ string, _ []byte) ([]byte, error) {
 		if q.pos >= len(q.draws) {
 			panic("rng queue exhausted")
 		}
@@ -73,10 +74,11 @@ func TestStartSwipeCashout(t *testing.T) {
 	restore := q.install()
 	defer restore()
 
-	bet := 10.0
+	ctx := context.Background()
+	bet := 10.0 // $10.00 → 1000 cents
 
 	// --- start ---
-	res1, err := game.Play(game.PlayParams{
+	res1, err := game.Play(ctx, game.PlayParams{
 		Req: game.Req{Action: "start", Bet: bet, BetType: "bet"},
 	}, rngURL, false)
 	if err != nil {
@@ -91,13 +93,24 @@ func TestStartSwipeCashout(t *testing.T) {
 	if len(res1.Finance) != 1 {
 		t.Fatalf("start: expected 1 finance record (betting), got %d", len(res1.Finance))
 	}
-	expectedAcc := bet * game.HouseEdge * game.NormalSafeMult
-	if abs(res1.Round.Acc-expectedAcc) > 0.0001 {
-		t.Fatalf("start: acc=%f want %f", res1.Round.Acc, expectedAcc)
+	// betCents=1000; initial acc = (1000*9500+5000)/10000 = 950
+	// after safe (11499 bp): (950*11499+5000)/10000 = 10929050/10000 = 1092
+	const wantAccCents int64 = 1092
+	if res1.Round.AccCents != wantAccCents {
+		t.Fatalf("start: acc_cents=%d want %d", res1.Round.AccCents, wantAccCents)
+	}
+	if res1.Resp.AccCents != wantAccCents {
+		t.Fatalf("start: resp.acc_cents=%d want %d", res1.Resp.AccCents, wantAccCents)
+	}
+	if res1.Resp.AppliedMultBP == nil || *res1.Resp.AppliedMultBP != int(game.NormalSafeMultBP) {
+		t.Fatalf("start: expected applied_mult_bp=%d, got %v", game.NormalSafeMultBP, res1.Resp.AppliedMultBP)
+	}
+	if res1.Resp.AppliedMultDisplay == nil || *res1.Resp.AppliedMultDisplay != "1.15" {
+		t.Fatalf("start: expected applied_mult_display=1.15, got %v", res1.Resp.AppliedMultDisplay)
 	}
 
 	// --- swipe ---
-	res2, err := game.Play(game.PlayParams{
+	res2, err := game.Play(ctx, game.PlayParams{
 		Round: &res1.Round,
 		Req:   game.Req{Action: "swipe"},
 	}, rngURL, false)
@@ -112,7 +125,7 @@ func TestStartSwipeCashout(t *testing.T) {
 	}
 
 	// --- cashout ---
-	res3, err := game.Play(game.PlayParams{
+	res3, err := game.Play(ctx, game.PlayParams{
 		Round: &res2.Round,
 		Req:   game.Req{Action: "cashout"},
 	}, rngURL, false)
@@ -128,6 +141,10 @@ func TestStartSwipeCashout(t *testing.T) {
 	if len(res3.Finance) != 1 {
 		t.Fatalf("cashout: expected 1 finance record (payout), got %d", len(res3.Finance))
 	}
+	// No multiplier on cashout
+	if res3.Resp.AppliedMultBP != nil || res3.Resp.AppliedMultDisplay != nil {
+		t.Fatal("cashout: expected nil mult fields")
+	}
 }
 
 // ── Test: start → bomb ───────────────────────────────────────────────────────
@@ -139,7 +156,7 @@ func TestStartBomb(t *testing.T) {
 	restore := q.install()
 	defer restore()
 
-	res, err := game.Play(game.PlayParams{
+	res, err := game.Play(context.Background(), game.PlayParams{
 		Req: game.Req{Action: "start", Bet: 10, BetType: "bet"},
 	}, rngURL, false)
 	if err != nil {
@@ -151,8 +168,8 @@ func TestStartBomb(t *testing.T) {
 	if res.Resp.Outcome == nil || *res.Resp.Outcome != "bomb" {
 		t.Fatalf("start+bomb: expected outcome=bomb, got %v", res.Resp.Outcome)
 	}
-	if res.Round.Acc != 0 {
-		t.Fatalf("start+bomb: acc should be 0, got %f", res.Round.Acc)
+	if res.Round.AccCents != 0 {
+		t.Fatalf("start+bomb: acc_cents should be 0, got %d", res.Round.AccCents)
 	}
 	if res.Round.Alive {
 		t.Fatal("start+bomb: alive should be false after bomb")
@@ -160,6 +177,10 @@ func TestStartBomb(t *testing.T) {
 	// Finance should have only the betting record (no payout on bomb)
 	if len(res.Finance) != 1 {
 		t.Fatalf("start+bomb: expected 1 finance record (betting only), got %d", len(res.Finance))
+	}
+	// No multiplier on bomb
+	if res.Resp.AppliedMultBP != nil || res.Resp.AppliedMultDisplay != nil {
+		t.Fatal("start+bomb: expected nil mult fields on bomb")
 	}
 }
 
@@ -172,12 +193,14 @@ func TestSwipeAfterFinal(t *testing.T) {
 	restore := q.install()
 	defer restore()
 
-	res, _ := game.Play(game.PlayParams{
+	ctx := context.Background()
+
+	res, _ := game.Play(ctx, game.PlayParams{
 		Req: game.Req{Action: "start", Bet: 10, BetType: "bet"},
 	}, rngURL, false)
 
 	// Round is dead — swipe must error
-	_, err := game.Play(game.PlayParams{
+	_, err := game.Play(ctx, game.PlayParams{
 		Round: &res.Round,
 		Req:   game.Req{Action: "swipe"},
 	}, rngURL, false)
@@ -189,36 +212,34 @@ func TestSwipeAfterFinal(t *testing.T) {
 // ── Test: maxwin is forced final ─────────────────────────────────────────────
 
 func TestMaxWin(t *testing.T) {
-	// We need enough safe draws to exceed bet*500.
-	// With bet=10, cap=5000. acc starts at 10*0.95=9.5.
-	// Each safe ×1.1499. After N swipes acc ≥ 5000.
-	// 9.5 * 1.1499^N >= 5000 → N >= log(5000/9.5)/log(1.1499) ≈ 47 swipes
-	// To keep test fast use a large bet that hits quickly.
-	// bet=1000, cap=500000. acc=950*1.1499^N
-	// Actually let's use god mode with a forced safe to drive acc up faster.
-	// Simpler: use the boost (×10) — need fewer draws.
-	// acc=9.5, one boost → 95, another → 950, another → 9500 > 5000 → capped.
-	// 3 boost draws.
+	// betCents=1000, cap=1000*500=500000 cents ($5000.00).
+	// After HouseEdge: (1000*9500+5000)/10000 = 950 cents.
+	// Each boost (100000 bp, 10×): (acc*100000+5000)/10000 ≈ acc*10.
+	//   step start:  acc = 950
+	//   swipe 1 boost: (950*100000+5000)/10000 = 9500
+	//   swipe 2 boost: (9500*100000+5000)/10000 = 95000
+	//   swipe 3 boost: (95000*100000+5000)/10000 = 950000 → capped at 500000
 
 	q := &rngQueue{draws: []rng.Draw{
-		{U1: safeU1, U2: boostU2}, // start: boost ×10 → acc = 9.5*10 = 95
-		{U1: safeU1, U2: boostU2}, // swipe 1: boost ×10 → acc = 950
-		{U1: safeU1, U2: boostU2}, // swipe 2: boost ×10 → acc = 9500 → capped to 5000, final
+		{U1: safeU1, U2: boostU2}, // start: boost ×10
+		{U1: safeU1, U2: boostU2}, // swipe 1: boost ×10
+		{U1: safeU1, U2: boostU2}, // swipe 2: boost ×10 → capped
 	}}
 	restore := q.install()
 	defer restore()
 
+	ctx := context.Background()
 	bet := 10.0
-	cap := bet * game.MaxMult // 5000
+	capCents := int64(1000) * game.MaxMult // 500000
 
-	res1, err := game.Play(game.PlayParams{
+	res1, err := game.Play(ctx, game.PlayParams{
 		Req: game.Req{Action: "start", Bet: bet, BetType: "bet"},
 	}, rngURL, false)
 	if err != nil {
 		t.Fatalf("maxwin start: %v", err)
 	}
 
-	res2, err := game.Play(game.PlayParams{
+	res2, err := game.Play(ctx, game.PlayParams{
 		Round: &res1.Round,
 		Req:   game.Req{Action: "swipe"},
 	}, rngURL, false)
@@ -226,7 +247,7 @@ func TestMaxWin(t *testing.T) {
 		t.Fatalf("maxwin swipe1: %v", err)
 	}
 
-	res3, err := game.Play(game.PlayParams{
+	res3, err := game.Play(ctx, game.PlayParams{
 		Round: &res2.Round,
 		Req:   game.Req{Action: "swipe"},
 	}, rngURL, false)
@@ -240,8 +261,8 @@ func TestMaxWin(t *testing.T) {
 	if !res3.Round.MaxReached {
 		t.Fatal("maxwin: expected max_reached=true")
 	}
-	if res3.Round.Acc != cap {
-		t.Fatalf("maxwin: acc=%f want %f", res3.Round.Acc, cap)
+	if res3.Round.AccCents != capCents {
+		t.Fatalf("maxwin: acc_cents=%d want %d", res3.Round.AccCents, capCents)
 	}
 	if res3.Resp.EndedBy == nil || *res3.Resp.EndedBy != "maxwin" {
 		t.Fatalf("maxwin: expected ended_by=maxwin, got %v", res3.Resp.EndedBy)
@@ -250,11 +271,4 @@ func TestMaxWin(t *testing.T) {
 	if len(res3.Finance) != 1 {
 		t.Fatalf("maxwin: expected 1 finance record (payout), got %d", len(res3.Finance))
 	}
-}
-
-func abs(f float64) float64 {
-	if f < 0 {
-		return -f
-	}
-	return f
 }

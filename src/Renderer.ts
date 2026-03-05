@@ -201,11 +201,14 @@ function buildTextCard(w: number, h: number, def: CardDef): CardObjects {
 // ── Intro card (full-bleed Reels/TikTok style) ────────────────────────────────
 
 export interface BetSelectorOpts {
-  value:    number;
-  onChange: (v: number) => void;
-  min?:     number;
-  max?:     number;
-  step?:    number;
+  /** All available bet values in currency subunits, ascending. */
+  bets:        bigint[];
+  /** Index of the currently selected bet within `bets`. */
+  betIndex:    number;
+  /** Called when the user taps +/−; receives the new index. */
+  onBetChange: (newIndex: number) => void;
+  /** Formats a bet bigint into the display string shown on the selector. */
+  formatBet:   (betInt: bigint) => string;
 }
 
 function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelectorOpts): CardObjects {
@@ -366,8 +369,7 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
   let betCont: PIXI.Container | null = null;
 
   if (betOpts) {
-    const { min = 10, max = 200, step = 10 } = betOpts;
-    let currentBet = betOpts.value;
+    let currentIndex = betOpts.betIndex;
     const SEL_H = 56;
 
     betCont = new PIXI.Container();
@@ -394,10 +396,12 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
     betLabel.y = SEL_H / 2;
     betCont.addChild(betLabel);
 
-    const refreshLabel = () => { betLabel.text = `BET  ${currentBet}`; };
+    const refreshLabel = () => {
+      betLabel.text = `BET  ${betOpts.formatBet(betOpts.bets[currentIndex])}`;
+    };
     refreshLabel();
 
-    // Minus button
+    // Minus button — step index down
     const minusCont = new PIXI.Container();
     minusCont.eventMode = 'static';
     minusCont.cursor = 'pointer';
@@ -413,13 +417,13 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
     minusCont.x = BTN_SIZE / 2 + 4;
     minusCont.y = SEL_H / 2;
     minusCont.on('pointertap', () => {
-      currentBet = Math.max(min, currentBet - step);
-      betOpts.onChange(currentBet);
+      currentIndex = Math.max(0, currentIndex - 1);
+      betOpts.onBetChange(currentIndex);
       refreshLabel();
     });
     betCont.addChild(minusCont);
 
-    // Plus button
+    // Plus button — step index up
     const plusCont = new PIXI.Container();
     plusCont.eventMode = 'static';
     plusCont.cursor = 'pointer';
@@ -435,8 +439,8 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
     plusCont.x = SEL_W - BTN_SIZE / 2 - 4;
     plusCont.y = SEL_H / 2;
     plusCont.on('pointertap', () => {
-      currentBet = Math.min(max, currentBet + step);
-      betOpts.onChange(currentBet);
+      currentIndex = Math.min(betOpts.bets.length - 1, currentIndex + 1);
+      betOpts.onBetChange(currentIndex);
       refreshLabel();
     });
     betCont.addChild(plusCont);
