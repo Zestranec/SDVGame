@@ -7,12 +7,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"adhd-backend/internal/logx"
 )
+
+// httpClient is the shared HTTP client with a hard timeout.
+// Using a package-level client (not http.DefaultClient) ensures timeout is enforced
+// even when the caller's context has no deadline.
+var httpClient = &http.Client{Timeout: 3 * time.Second}
+
+// rngReqCounter provides a monotonically increasing per-process call counter
+// used to construct unique JSON-RPC request IDs.
+var rngReqCounter uint64
 
 // Draw holds two u32 values fetched for a single game draw step.
 type Draw struct {
@@ -26,9 +37,10 @@ func ToFloat(u uint32) float64 {
 }
 
 // rpcReq is the outgoing JSON-RPC request to the RNG service.
+// ID is a string to accommodate unique per-call identifiers.
 type rpcReq struct {
 	JSONRPC string         `json:"jsonrpc"`
-	ID      int            `json:"id"`
+	ID      string         `json:"id"`
 	Method  string         `json:"method"`
 	Params  map[string]any `json:"params"`
 }
@@ -38,7 +50,7 @@ type rpcReq struct {
 // a nested object {"values": [...]}.
 type rpcResp struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      int             `json:"id"`
+	ID      json.RawMessage `json:"id"`
 	Result  json.RawMessage `json:"result"`
 	Error   *struct {
 		Code    int    `json:"code"`
@@ -54,14 +66,20 @@ var Fetch = func(ctx context.Context, url string, body []byte) ([]byte, error) {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	var buf bytes.Buffer
-	_, err = buf.ReadFrom(resp.Body)
-	return buf.Bytes(), err
+	respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if resp.StatusCode != http.StatusOK {
+		snippet := string(respBody)
+		if len(snippet) > 200 {
+			snippet = snippet[:200]
+		}
+		return nil, fmt.Errorf("rng http %d: %s", resp.StatusCode, snippet)
+	}
+	return respBody, readErr
 }
 
 // FetchDraw requests exactly 2 u32 values from the RNG service at rngURL.
@@ -92,9 +110,11 @@ func FetchDraw(ctx context.Context, rngURL string) (draw Draw, err error) {
 		}
 	}()
 
+	callID := fmt.Sprintf("%d-%d", time.Now().UnixNano(), atomic.AddUint64(&rngReqCounter, 1))
+
 	reqBody, err := json.Marshal(rpcReq{
 		JSONRPC: "2.0",
-		ID:      1,
+		ID:      callID,
 		Method:  "rand",
 		Params:  map[string]any{"type": "u32", "qty": 2},
 	})
