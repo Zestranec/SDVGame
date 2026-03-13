@@ -2,6 +2,7 @@ package game_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"adhd-backend/internal/game"
@@ -75,7 +76,7 @@ func TestStartSwipeCashout(t *testing.T) {
 	defer restore()
 
 	ctx := context.Background()
-	bet := 10.0 // $10.00 → 1000 cents
+	var bet int64 = 1000 // $10.00 in cents
 
 	// --- start ---
 	res1, err := game.Play(ctx, game.PlayParams{
@@ -93,6 +94,8 @@ func TestStartSwipeCashout(t *testing.T) {
 	if len(res1.Finance) != 1 {
 		t.Fatalf("start: expected 1 finance record (betting), got %d", len(res1.Finance))
 	}
+	// Finance[0] must be {type:"bet", amount:-1000}
+	assertFinanceEvent(t, "start finance[0]", res1.Finance[0], "bet", -bet)
 	// betCents=1000; initial acc = (1000*9500+5000)/10000 = 950
 	// after safe (11499 bp): (950*11499+5000)/10000 = 10929050/10000 = 1092
 	const wantAccCents int64 = 1092
@@ -141,6 +144,8 @@ func TestStartSwipeCashout(t *testing.T) {
 	if len(res3.Finance) != 1 {
 		t.Fatalf("cashout: expected 1 finance record (payout), got %d", len(res3.Finance))
 	}
+	// Finance[0] must be {type:"win", amount:+res3.Round.AccCents}
+	assertFinanceEvent(t, "cashout finance[0]", res3.Finance[0], "win", res3.Round.AccCents)
 	// No multiplier on cashout
 	if res3.Resp.AppliedMultBP != nil || res3.Resp.AppliedMultDisplay != nil {
 		t.Fatal("cashout: expected nil mult fields")
@@ -157,7 +162,7 @@ func TestStartBomb(t *testing.T) {
 	defer restore()
 
 	res, err := game.Play(context.Background(), game.PlayParams{
-		Req: game.Req{Action: "start", Bet: 10, BetType: "bet"},
+		Req: game.Req{Action: "start", Bet: 1000, BetType: "bet"},
 	}, rngURL, false, "USD")
 	if err != nil {
 		t.Fatalf("start+bomb: %v", err)
@@ -178,6 +183,7 @@ func TestStartBomb(t *testing.T) {
 	if len(res.Finance) != 1 {
 		t.Fatalf("start+bomb: expected 1 finance record (betting only), got %d", len(res.Finance))
 	}
+	assertFinanceEvent(t, "bomb finance[0]", res.Finance[0], "bet", -1000)
 	// No multiplier on bomb
 	if res.Resp.AppliedMultBP != nil || res.Resp.AppliedMultDisplay != nil {
 		t.Fatal("start+bomb: expected nil mult fields on bomb")
@@ -196,7 +202,7 @@ func TestSwipeAfterFinal(t *testing.T) {
 	ctx := context.Background()
 
 	res, _ := game.Play(ctx, game.PlayParams{
-		Req: game.Req{Action: "start", Bet: 10, BetType: "bet"},
+		Req: game.Req{Action: "start", Bet: 1000, BetType: "bet"},
 	}, rngURL, false, "USD")
 
 	// Round is dead — swipe must error
@@ -229,8 +235,8 @@ func TestMaxWin(t *testing.T) {
 	defer restore()
 
 	ctx := context.Background()
-	bet := 10.0
-	capCents := int64(1000) * game.MaxMult // 500000
+	var bet int64 = 1000 // $10.00 in cents
+	capCents := bet * game.MaxMult // 500000
 
 	res1, err := game.Play(ctx, game.PlayParams{
 		Req: game.Req{Action: "start", Bet: bet, BetType: "bet"},
@@ -267,8 +273,30 @@ func TestMaxWin(t *testing.T) {
 	if res3.Resp.EndedBy == nil || *res3.Resp.EndedBy != "maxwin" {
 		t.Fatalf("maxwin: expected ended_by=maxwin, got %v", res3.Resp.EndedBy)
 	}
-	// Payout finance should be present
+	// Payout finance should be present with type:"win"
 	if len(res3.Finance) != 1 {
 		t.Fatalf("maxwin: expected 1 finance record (payout), got %d", len(res3.Finance))
+	}
+	assertFinanceEvent(t, "maxwin finance[0]", res3.Finance[0], "win", capCents)
+}
+
+// ── Helper ────────────────────────────────────────────────────────────────────
+
+// assertFinanceEvent checks that a raw finance JSON record has the exact
+// Runner-expected schema: {"type":"<wantType>","amount":<wantAmount>}.
+func assertFinanceEvent(t *testing.T, label string, raw json.RawMessage, wantType string, wantAmount int64) {
+	t.Helper()
+	var fe struct {
+		Type   string `json:"type"`
+		Amount int64  `json:"amount"`
+	}
+	if err := json.Unmarshal(raw, &fe); err != nil {
+		t.Fatalf("%s: json unmarshal: %v", label, err)
+	}
+	if fe.Type != wantType {
+		t.Errorf("%s: type=%q want %q", label, fe.Type, wantType)
+	}
+	if fe.Amount != wantAmount {
+		t.Errorf("%s: amount=%d want %d", label, fe.Amount, wantAmount)
 	}
 }

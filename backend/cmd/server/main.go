@@ -291,31 +291,13 @@ func handleRunnerPlay(ctx context.Context, raw json.RawMessage, cfg *config.Conf
 		token = params.Token
 	}
 
-	// Convert bet from Runner format (subunit integer, e.g. 1000 cents)
-	// to game-function format (whole-unit float, e.g. 10.0 dollars).
-	// game.handleStart does betCents = math.Round(Req.Bet * 100), so we need
-	// Req.Bet = betSubunits / currencySubunits.
-	betFloat := params.Req.Bet
-	if betFloat > 0 {
-		subunits := float64(100) // default USD
-		if cfg != nil {
-			if sess, sessOK := cfg.Sessions[token]; sessOK {
-				attrs := config.CurrencyByCode(sess.Currency)
-				if attrs.Subunits > 0 {
-					subunits = float64(attrs.Subunits)
-				}
-			}
-		}
-		betFloat = params.Req.Bet / subunits
-	}
-
 	currencyCode := resolveCurrencyCode(ctx, token, cfg)
 
 	gameParams := game.PlayParams{
 		Token:   token,
 		Game:    entry.GameMap,
 		Round:   entry.Round,
-		Req:     game.Req{Action: params.Req.Action, Bet: betFloat, BetType: params.Req.BetType},
+		Req:     game.Req{Action: params.Req.Action, Bet: params.Req.Bet, BetType: params.Req.BetType},
 		Config:  map[string]any{},
 		GodData: params.GodData,
 	}

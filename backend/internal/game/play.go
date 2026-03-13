@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math"
 
 	"adhd-backend/internal/logx"
 	"adhd-backend/internal/rng"
@@ -25,10 +24,11 @@ type GodData struct {
 }
 
 // Req is the per-play action request from the runner.
+// Bet is in integer subunits (cents); the runner sends it already scaled.
 type Req struct {
-	Action  string  `json:"action"`
-	Bet     float64 `json:"bet"`
-	BetType string  `json:"bet_type"`
+	Action  string `json:"action"`
+	Bet     int64  `json:"bet"`
+	BetType string `json:"bet_type"`
 }
 
 // PlayParams are the full params block sent by the runner/frontend.
@@ -55,8 +55,8 @@ func (e *PlayError) GetCode() int  { return e.Code }
 // ── Play entry point ─────────────────────────────────────────────────────────
 
 // Play processes one runner call and returns a PlayResult or a PlayError.
-// currencyCode is the ISO currency code for FinancePayout entries (e.g. "USD").
-// Resolved by the server handler from the session config; never hardcoded here.
+// currencyCode is accepted for compatibility but not used in finance events
+// (the Runner derives currency from the session).
 func Play(ctx context.Context, params PlayParams, rngURL string, godModeEnabled bool, currencyCode string) (PlayResult, error) {
 	switch params.Req.Action {
 	case "start":
@@ -73,8 +73,7 @@ func Play(ctx context.Context, params PlayParams, rngURL string, godModeEnabled 
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
 func handleStart(ctx context.Context, params PlayParams, rngURL string, godModeEnabled bool, currencyCode string) (PlayResult, error) {
-	// Convert float bet from runner to integer cents (round-half-up).
-	betCents := int64(math.Round(params.Req.Bet * 100))
+	betCents := params.Req.Bet
 	betType := params.Req.BetType
 	if betType == "" {
 		betType = "bet"
@@ -89,12 +88,7 @@ func handleStart(ctx context.Context, params PlayParams, rngURL string, godModeE
 		EndedBy:      nil,
 	}
 
-	bettingRaw, _ := json.Marshal(FinanceBetting{
-		Type:         "betting",
-		BetCents:     -betCents,
-		BaseBetCents: betCents,
-		BetType:      betType,
-	})
+	bettingRaw, _ := json.Marshal(FinanceEvent{Type: "bet", Amount: -betCents})
 
 	accBefore := round.AccCents
 
@@ -125,7 +119,7 @@ func handleStart(ctx context.Context, params PlayParams, rngURL string, godModeE
 	finance = append(finance, bettingRaw)
 
 	if final && round.MaxReached {
-		finance = append(finance, payoutFinance(currencyCode, round.AccCents))
+		finance = append(finance, payoutFinance(round.AccCents))
 	}
 
 	result := PlayResult{
@@ -187,7 +181,7 @@ func handleSwipe(ctx context.Context, params PlayParams, rngURL string, godModeE
 	var finance []json.RawMessage
 
 	if final && round.MaxReached {
-		finance = append(finance, payoutFinance(currencyCode, round.AccCents))
+		finance = append(finance, payoutFinance(round.AccCents))
 	}
 
 	if finance == nil {
@@ -242,7 +236,7 @@ func handleCashout(ctx context.Context, params PlayParams, currencyCode string) 
 
 	result := PlayResult{
 		Final:   true,
-		Finance: []json.RawMessage{payoutFinance(currencyCode, round.AccCents)},
+		Finance: []json.RawMessage{payoutFinance(round.AccCents)},
 		Game:    map[string]any{},
 		Round:   round,
 		Resp:    resp,
@@ -391,8 +385,8 @@ func derefStr(p *string) string {
 	return *p
 }
 
-// payoutFinance marshals a FinancePayout entry with the session currency code.
-func payoutFinance(currencyCode string, amountCents int64) json.RawMessage {
-	raw, _ := json.Marshal(FinancePayout{Type: "payout", AmountCents: amountCents, Currency: currencyCode})
+// payoutFinance marshals a win FinanceEvent.
+func payoutFinance(amountCents int64) json.RawMessage {
+	raw, _ := json.Marshal(FinanceEvent{Type: "win", Amount: amountCents})
 	return raw
 }

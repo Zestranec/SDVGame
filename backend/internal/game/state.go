@@ -14,20 +14,12 @@ type Round struct {
 	GodCursor    int     `json:"god_cursor,omitempty"`
 }
 
-// FinanceBetting is the finance record emitted on "start".
-// BetCents is negative (debit); BaseBetCents is positive (stake reference).
-type FinanceBetting struct {
-	Type         string `json:"type"`
-	BetCents     int64  `json:"bet_cents"`
-	BaseBetCents int64  `json:"base_bet_cents"`
-	BetType      string `json:"bet_type"`
-}
-
-// FinancePayout is the finance record emitted on cashout / maxwin.
-type FinancePayout struct {
-	Type        string `json:"type"`
-	AmountCents int64  `json:"amount_cents"`
-	Currency    string `json:"currency"`
+// FinanceEvent is the finance record emitted in the Runner-compatible format.
+// Type is "bet" (negative debit on start) or "win" (positive credit on cashout/maxwin).
+// Amount is in integer subunits (cents); negative for bet, positive for win.
+type FinanceEvent struct {
+	Type   string `json:"type"`
+	Amount int64  `json:"amount"`
 }
 
 // Resp is the per-step response object returned in "resp".
