@@ -178,15 +178,7 @@ func handleSwipe(ctx context.Context, params PlayParams, rngURL string, godModeE
 		MaxReached:         round.MaxReached,
 	}
 
-	var finance []json.RawMessage
-
-	if final && round.MaxReached {
-		finance = append(finance, payoutFinance(round.AccCents, round.BaseBetCents))
-	}
-
-	if finance == nil {
-		finance = []json.RawMessage{}
-	}
+	finance := []json.RawMessage{payoutFinance(round.AccCents, round.BaseBetCents)}
 
 	result := PlayResult{
 		Final:   final,
