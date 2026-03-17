@@ -217,7 +217,9 @@ func handleSwipe(ctx context.Context, params PlayParams, rngURL string, godModeE
 			gameMap["freebet_acc_win"] = freebetAccWin
 		}
 	} else {
-		finance = []json.RawMessage{payoutFinance(round.AccCents, round.BaseBetCents)}
+		if final && round.MaxReached {
+			finance = append(finance, payoutFinance(round.AccCents, round.BaseBetCents))
+		}
 	}
 
 	if finance == nil {
