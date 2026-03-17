@@ -15,11 +15,13 @@ type Round struct {
 }
 
 // FinanceEvent is the finance record emitted in the Runner-compatible format.
-// Type is "bet" (negative debit on start) or "win" (positive credit on cashout/maxwin).
-// Amount is in integer subunits (cents); negative for bet, positive for win.
+// Type is always "betting". Bet is the wager (negative for debit), Base is the
+// original bet amount, WinChange is the payout credited to the player.
 type FinanceEvent struct {
-	Type   string `json:"type"`
-	Amount int64  `json:"amount"`
+	Type      string `json:"type"`
+	Bet       int64  `json:"bet,omitempty"`
+	Base      int64  `json:"base,omitempty"`
+	WinChange int64  `json:"win_change,omitempty"`
 }
 
 // Resp is the per-step response object returned in "resp".

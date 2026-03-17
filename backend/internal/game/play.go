@@ -88,7 +88,7 @@ func handleStart(ctx context.Context, params PlayParams, rngURL string, godModeE
 		EndedBy:      nil,
 	}
 
-	bettingRaw, _ := json.Marshal(FinanceEvent{Type: "bet", Amount: -betCents})
+	bettingRaw, _ := json.Marshal(FinanceEvent{Type: "betting", Bet: -betCents, Base: betCents})
 
 	accBefore := round.AccCents
 
@@ -119,7 +119,7 @@ func handleStart(ctx context.Context, params PlayParams, rngURL string, godModeE
 	finance = append(finance, bettingRaw)
 
 	if final && round.MaxReached {
-		finance = append(finance, payoutFinance(round.AccCents))
+		finance = append(finance, payoutFinance(round.AccCents, round.BaseBetCents))
 	}
 
 	result := PlayResult{
@@ -181,7 +181,7 @@ func handleSwipe(ctx context.Context, params PlayParams, rngURL string, godModeE
 	var finance []json.RawMessage
 
 	if final && round.MaxReached {
-		finance = append(finance, payoutFinance(round.AccCents))
+		finance = append(finance, payoutFinance(round.AccCents, round.BaseBetCents))
 	}
 
 	if finance == nil {
@@ -236,7 +236,7 @@ func handleCashout(ctx context.Context, params PlayParams, currencyCode string) 
 
 	result := PlayResult{
 		Final:   true,
-		Finance: []json.RawMessage{payoutFinance(round.AccCents)},
+		Finance: []json.RawMessage{payoutFinance(round.AccCents, round.BaseBetCents)},
 		Game:    map[string]any{},
 		Round:   round,
 		Resp:    resp,
@@ -386,7 +386,7 @@ func derefStr(p *string) string {
 }
 
 // payoutFinance marshals a win FinanceEvent.
-func payoutFinance(amountCents int64) json.RawMessage {
-	raw, _ := json.Marshal(FinanceEvent{Type: "win", Amount: amountCents})
+func payoutFinance(amountCents int64, baseBetCents int64) json.RawMessage {
+	raw, _ := json.Marshal(FinanceEvent{Type: "betting", WinChange: amountCents, Base: baseBetCents})
 	return raw
 }
