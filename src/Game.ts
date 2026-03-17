@@ -14,8 +14,11 @@ import {
   type GameResp,
   type RunnerFreebets,
   type RunnerPlayReq,
+  type ReplayStep,
+  type RunnerReplayResult,
   toBigInt,
   parseTokenFromUrl,
+  parseRoundIdFromUrl,
   showFatalError,
 } from './runnerClient';
 
@@ -108,7 +111,25 @@ export class Game {
   private infoTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
-    const token = parseTokenFromUrl();
+    const roundId = parseRoundIdFromUrl();
+    const token   = parseTokenFromUrl();
+
+    if (roundId) {
+      // ── Replay mode — no token needed ─────────────────────────────────────
+      this.token      = '';
+      this.replayMode = true;
+      this.economy    = new Economy(0n);
+      this.renderer   = new Renderer(canvas);
+      this.ui         = new Ui();
+      // Swipe input is a no-op in replay (navigation via dedicated controls)
+      this.swipe      = new SwipeInput(document.body, () => {});
+      // Dummy runner — only runner.replay() will be called, which needs no token
+      this.runner     = new RunnerClient('');
+      this.setState('loading');
+      void this.bootReplay(roundId);
+      return;
+    }
+
     if (!token) {
       showFatalError('Missing token in URL (?token=…).\nRunner init cannot start.');
       this.token    = '';
@@ -235,6 +256,68 @@ export class Game {
     this._checkFreebetsEvents(prev, gameOptions.freebets);
   }
 
+  // ── Replay boot + playback ─────────────────────────────────────────────────
+
+  private async bootReplay(roundId: string): Promise<void> {
+    const scene = new LoadingScene(this.renderer.app);
+    let result: RunnerReplayResult;
+    try {
+      [result] = await Promise.all([
+        this.runner.replay(roundId),
+        scene.loadAssets(),
+        delay(LOADING_MIN_MS),
+      ]);
+      this.replaySteps = result.steps;
+      this.replayIndex = 0;
+      gameOptions.populateFromReplay(result);
+      this.economy = new Economy(toBigInt(result.balance));
+      this.ui.setCurrencyConfig(gameOptions.currency, gameOptions.feDecimals);
+    } catch (err) {
+      scene.destroy();
+      showFatalError(`Replay load failed:\n${String(err)}`);
+      return;
+    }
+
+    scene.destroy();
+    this.ui.setBalance(this.economy.balance);
+    this.showReplayControls();
+    void this.playReplayStep();
+  }
+
+  private showReplayControls(): void {
+    this.ui.showReplayControls(
+      () => void this.replayBack(),
+      () => void this.replayNext(),
+    );
+  }
+
+  private async playReplayStep(): Promise<void> {
+    if (this.replayIndex >= this.replaySteps.length) return;
+    const step = this.replaySteps[this.replayIndex];
+    const card = this.buildCardFromResp(step.resp);
+    this.renderer.primeCard(card);
+    await this.renderer.transitionTo(card);
+    const accCents = BigInt(step.resp.acc_cents);
+    this.economy.setRoundValueFromBackend(accCents, step.resp.step);
+    this.ui.setBalance(toBigInt(step.balance));
+    this.ui.setRoundValue(this.economy.roundValue, this.computeMultiplier());
+    this.ui.updateReplayControls(this.replayIndex, this.replaySteps.length);
+  }
+
+  private async replayNext(): Promise<void> {
+    if (this.replayIndex < this.replaySteps.length - 1) {
+      this.replayIndex++;
+      await this.playReplayStep();
+    }
+  }
+
+  private async replayBack(): Promise<void> {
+    if (this.replayIndex > 0) {
+      this.replayIndex--;
+      await this.playReplayStep();
+    }
+  }
+
   // ── Boot (loading screen + Runner init) ───────────────────────────────────
 
   private async boot(): Promise<void> {
@@ -349,6 +432,11 @@ export class Game {
    * `busy` is the logical guard at the Game level.
    */
   private busy = false;
+
+  // ── Replay mode ────────────────────────────────────────────────────────────
+  private replayMode  = false;
+  private replaySteps: ReplayStep[] = [];
+  private replayIndex = 0;
 
   // ── Freebet tracking ───────────────────────────────────────────────────────
   /** Whether the current round is the last freebet in the sequence. */

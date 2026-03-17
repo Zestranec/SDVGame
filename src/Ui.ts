@@ -334,4 +334,90 @@ export class Ui {
       this.glitchEl.style.display = 'none';
     }, durationMs);
   }
+
+  // ── Replay controls ───────────────────────────────────────────────────────
+
+  private _replayEl:     HTMLElement | null = null;
+  private _replayBack:   HTMLButtonElement | null = null;
+  private _replayNext:   HTMLButtonElement | null = null;
+  private _replayLabel:  HTMLElement | null = null;
+
+  showReplayControls(onBack: () => void, onNext: () => void): void {
+    if (this._replayEl) return; // already created
+
+    const wrap = document.createElement('div');
+    Object.assign(wrap.style, {
+      position:       'fixed',
+      bottom:         '32px',
+      left:           '50%',
+      transform:      'translateX(-50%)',
+      display:        'flex',
+      alignItems:     'center',
+      gap:            '14px',
+      background:     'rgba(10,0,30,0.88)',
+      border:         '1px solid rgba(160,80,255,0.4)',
+      borderRadius:   '40px',
+      padding:        '10px 22px',
+      zIndex:         '9000',
+      userSelect:     'none',
+    });
+
+    const mkBtn = (label: string): HTMLButtonElement => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      Object.assign(b.style, {
+        background:   'rgba(255,255,255,0.08)',
+        border:       '1px solid rgba(255,255,255,0.2)',
+        borderRadius: '20px',
+        color:        '#fff',
+        fontSize:     '15px',
+        fontWeight:   '700',
+        padding:      '6px 20px',
+        cursor:       'pointer',
+      });
+      return b;
+    };
+
+    const backBtn  = mkBtn('◀ Back');
+    const nextBtn  = mkBtn('Next ▶');
+    const labelEl  = document.createElement('span');
+    Object.assign(labelEl.style, {
+      color:      '#d8b4fe',
+      fontSize:   '13px',
+      fontWeight: '700',
+      minWidth:   '80px',
+      textAlign:  'center',
+    });
+
+    backBtn.addEventListener('click', onBack);
+    nextBtn.addEventListener('click', onNext);
+
+    wrap.appendChild(backBtn);
+    wrap.appendChild(labelEl);
+    wrap.appendChild(nextBtn);
+    document.body.appendChild(wrap);
+
+    this._replayEl    = wrap;
+    this._replayBack  = backBtn;
+    this._replayNext  = nextBtn;
+    this._replayLabel = labelEl;
+
+    // Hide normal game chrome during replay
+    this.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
+  }
+
+  updateReplayControls(currentIndex: number, total: number): void {
+    if (!this._replayEl) return;
+    if (this._replayLabel) {
+      this._replayLabel.textContent = `Step ${currentIndex + 1} / ${total}`;
+    }
+    if (this._replayBack) {
+      this._replayBack.disabled = currentIndex === 0;
+      this._replayBack.style.opacity = currentIndex === 0 ? '0.35' : '1';
+    }
+    if (this._replayNext) {
+      this._replayNext.disabled = currentIndex >= total - 1;
+      this._replayNext.style.opacity = currentIndex >= total - 1 ? '0.35' : '1';
+    }
+  }
 }

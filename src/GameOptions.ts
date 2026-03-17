@@ -16,6 +16,7 @@ import type {
   RunnerInfoResult,
   RunnerFreebets,
   RunnerUrls,
+  RunnerReplayResult,
 } from './runnerClient';
 import { toBigInt } from './runnerClient';
 
@@ -84,6 +85,20 @@ class GameOptionsStore {
     this.urls           = result.urls;
 
     this._recomputeDecimals();
+    this.ready = true;
+  }
+
+  // ── Populate from replay result ───────────────────────────────────────────
+
+  populateFromReplay(result: RunnerReplayResult): void {
+    const ca = result.currency_attributes;
+    this.currency = {
+      code:     ca.code,
+      symbol:   ca.symbol ?? ca.code,
+      subunits: ca.subunits,
+      exponent: ca.exponent,
+    };
+    this.feDecimals = ca.exponent;
     this.ready = true;
   }
 

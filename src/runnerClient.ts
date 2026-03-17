@@ -42,6 +42,13 @@ export function parseTokenFromUrl(): string | null {
   }
 }
 
+/** Parse the ?round_id= query parameter from the current URL (replay mode). */
+export function parseRoundIdFromUrl(): string | null {
+  try {
+    return new URLSearchParams(window.location.search).get('round_id');
+  } catch { return null; }
+}
+
 /**
  * Show a full-screen fatal error that blocks the game.
  * Used for unrecoverable situations: missing token, state_lock mismatch.
@@ -211,8 +218,23 @@ export class RunnerRpcError extends Error {
   }
 }
 
+export interface ReplayStep {
+  round:   string;
+  step:    string;
+  balance: number | string;
+  resp:    GameResp;
+  final:   boolean;
+}
+
+export interface RunnerReplayResult {
+  steps:               ReplayStep[];
+  currency:            string;
+  balance:             number | string;
+  currency_attributes: RunnerCurrencyAttributes;
+}
+
 async function rpcCall<T>(
-  method: 'init' | 'info' | 'play',
+  method: 'init' | 'info' | 'play' | 'replay',
   params: unknown,
 ): Promise<T> {
   const body: RpcPayload<unknown> = {
@@ -333,5 +355,11 @@ export class RunnerClient {
     }
 
     return result;
+  }
+
+  // ── replay ────────────────────────────────────────────────────────────────
+
+  async replay(roundId: string): Promise<RunnerReplayResult> {
+    return rpcCall<RunnerReplayResult>('replay', { id: roundId });
   }
 }
