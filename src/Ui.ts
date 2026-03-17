@@ -222,6 +222,92 @@ export class Ui {
     }, 3000);
   }
 
+  // ── Freebet notifications ────────────────────────────────────────────────
+
+  /** Transient notification popup — auto-closes after 5 s, click to close. */
+  private _showNotificationPopup(message: string): void {
+    let el = document.getElementById('notif-popup') as HTMLElement | null;
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'notif-popup';
+      Object.assign(el.style, {
+        position:       'fixed',
+        top:            '50%',
+        left:           '50%',
+        transform:      'translate(-50%, -50%)',
+        background:     '#0d0020',
+        border:         '2px solid rgba(160,80,255,0.55)',
+        borderRadius:   '14px',
+        padding:        '28px 36px',
+        maxWidth:       '80vw',
+        textAlign:      'center',
+        color:          '#fff',
+        fontSize:       '16px',
+        fontWeight:     '700',
+        lineHeight:     '1.6',
+        zIndex:         '99999',
+        boxShadow:      '0 8px 32px rgba(0,0,0,0.85)',
+        cursor:         'pointer',
+        whiteSpace:     'pre-line',
+      });
+      el.addEventListener('click', () => { if (el) el.style.display = 'none'; });
+      document.body.appendChild(el);
+    }
+    el.textContent = message;
+    el.style.display = 'block';
+    clearTimeout((el as HTMLElement & { _t?: ReturnType<typeof setTimeout> })._t);
+    (el as HTMLElement & { _t?: ReturnType<typeof setTimeout> })._t =
+      setTimeout(() => { if (el) el.style.display = 'none'; }, 5000);
+  }
+
+  showPopupFreebetsAwarded(count: number): void {
+    this._showNotificationPopup(`You have been rewarded with ${count} free plays`);
+  }
+
+  showPopupFreebetsFinished(count: number, totalWin: bigint): void {
+    const winStr = this.ccy(this.fmtWin(totalWin));
+    this._showNotificationPopup(
+      `You played ${count} free plays and won ${winStr}.\nNext swipes will be performed from your account balance.`,
+    );
+  }
+
+  // ── Freebets counter label ────────────────────────────────────────────────
+
+  private _fbCounterEl: HTMLElement | null = null;
+
+  showFreebetsCounter(remaining: number, total: number): void {
+    if (!this._fbCounterEl) {
+      const el = document.createElement('div');
+      el.id = 'fb-counter';
+      Object.assign(el.style, {
+        position:      'fixed',
+        top:           '12px',
+        left:          '50%',
+        transform:     'translateX(-50%)',
+        background:    'rgba(10,0,30,0.82)',
+        color:         '#d8b4fe',
+        padding:       '5px 18px',
+        borderRadius:  '20px',
+        fontSize:      '13px',
+        fontWeight:    '700',
+        zIndex:        '8888',
+        pointerEvents: 'none',
+        textAlign:     'center',
+        whiteSpace:    'nowrap',
+        border:        '1px solid rgba(160,80,255,0.35)',
+        letterSpacing: '0.03em',
+      });
+      document.body.appendChild(el);
+      this._fbCounterEl = el;
+    }
+    this._fbCounterEl.textContent = `Free Plays  ${remaining} / ${total}`;
+    this._fbCounterEl.style.display = 'block';
+  }
+
+  hideFreebetsCounter(): void {
+    if (this._fbCounterEl) this._fbCounterEl.style.display = 'none';
+  }
+
   // ── Flash (bomb) ──────────────────────────────────────────────────────────
 
   flashRed(durationMs = 500): void {

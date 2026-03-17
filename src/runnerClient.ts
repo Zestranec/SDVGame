@@ -181,6 +181,8 @@ export interface RunnerPlayReq {
   /** Bet amount in currency subunits (integer). Required for action="start". */
   bet?:               number;
   bet_type?:          'bet' | 'freebet';
+  /** True when this is the last freebet round — backend pays out accumulated win. */
+  freebets_last?:     boolean;
   purchased_feature?: string;
 }
 

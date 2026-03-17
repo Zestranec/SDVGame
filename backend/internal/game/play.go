@@ -26,9 +26,10 @@ type GodData struct {
 // Req is the per-play action request from the runner.
 // Bet is in integer subunits (cents); the runner sends it already scaled.
 type Req struct {
-	Action  string `json:"action"`
-	Bet     int64  `json:"bet"`
-	BetType string `json:"bet_type"`
+	Action       string `json:"action"`
+	Bet          int64  `json:"bet"`
+	BetType      string `json:"bet_type"`
+	FreebetsLast bool   `json:"freebets_last"`
 }
 
 // PlayParams are the full params block sent by the runner/frontend.
@@ -78,6 +79,8 @@ func handleStart(ctx context.Context, params PlayParams, rngURL string, godModeE
 	if betType == "" {
 		betType = "bet"
 	}
+	isFreebet := betType == "freebet"
+	freebetAccWin := getFreebetAccWin(params.Game)
 
 	round := Round{
 		BaseBetCents: betCents,
@@ -115,17 +118,32 @@ func handleStart(ctx context.Context, params PlayParams, rngURL string, godModeE
 		MaxReached:         round.MaxReached,
 	}
 
-	var finance []json.RawMessage
-	finance = append(finance, bettingRaw)
+	finance := []json.RawMessage{bettingRaw}
+	gameMap := map[string]any{}
 
-	if final && round.MaxReached {
-		finance = append(finance, payoutFinance(round.AccCents, round.BaseBetCents))
+	if isFreebet {
+		if final {
+			totalWin := freebetAccWin + round.AccCents
+			if params.Req.FreebetsLast {
+				if totalWin > 0 {
+					finance = append(finance, payoutFinance(totalWin, round.BaseBetCents))
+				}
+			} else if totalWin > 0 {
+				gameMap["freebet_acc_win"] = totalWin
+			}
+		} else if freebetAccWin > 0 {
+			gameMap["freebet_acc_win"] = freebetAccWin
+		}
+	} else {
+		if final && round.MaxReached {
+			finance = append(finance, payoutFinance(round.AccCents, round.BaseBetCents))
+		}
 	}
 
 	result := PlayResult{
 		Final:   final,
 		Finance: finance,
-		Game:    map[string]any{},
+		Game:    gameMap,
 		Round:   round,
 		Resp:    resp,
 	}
@@ -150,6 +168,9 @@ func handleSwipe(ctx context.Context, params PlayParams, rngURL string, godModeE
 		)
 		return PlayResult{}, &PlayError{Code: -32602, Message: "round already ended"}
 	}
+
+	isFreebet := params.Req.BetType == "freebet"
+	freebetAccWin := getFreebetAccWin(params.Game)
 
 	stepBefore := round.Step
 	accBefore := round.AccCents
@@ -178,12 +199,35 @@ func handleSwipe(ctx context.Context, params PlayParams, rngURL string, godModeE
 		MaxReached:         round.MaxReached,
 	}
 
-	finance := []json.RawMessage{payoutFinance(round.AccCents, round.BaseBetCents)}
+	var finance []json.RawMessage
+	gameMap := map[string]any{}
+
+	if isFreebet {
+		if final {
+			totalWin := freebetAccWin + round.AccCents
+			if params.Req.FreebetsLast {
+				if totalWin > 0 {
+					finance = []json.RawMessage{payoutFinance(totalWin, round.BaseBetCents)}
+				}
+			} else if totalWin > 0 {
+				gameMap["freebet_acc_win"] = totalWin
+			}
+		} else if freebetAccWin > 0 {
+			// Non-final swipe: preserve accumulated win in game state
+			gameMap["freebet_acc_win"] = freebetAccWin
+		}
+	} else {
+		finance = []json.RawMessage{payoutFinance(round.AccCents, round.BaseBetCents)}
+	}
+
+	if finance == nil {
+		finance = []json.RawMessage{}
+	}
 
 	result := PlayResult{
 		Final:   final,
 		Finance: finance,
-		Game:    map[string]any{},
+		Game:    gameMap,
 		Round:   round,
 		Resp:    resp,
 	}
@@ -209,6 +253,9 @@ func handleCashout(ctx context.Context, params PlayParams, currencyCode string) 
 		return PlayResult{}, &PlayError{Code: -32602, Message: "round already ended"}
 	}
 
+	isFreebet := params.Req.BetType == "freebet"
+	freebetAccWin := getFreebetAccWin(params.Game)
+
 	accBefore := round.AccCents
 	endedBy := "cashout"
 	round.Alive = false
@@ -226,10 +273,30 @@ func handleCashout(ctx context.Context, params PlayParams, currencyCode string) 
 		MaxReached:         round.MaxReached,
 	}
 
+	var finance []json.RawMessage
+	gameMap := map[string]any{}
+
+	if isFreebet {
+		totalWin := freebetAccWin + round.AccCents
+		if params.Req.FreebetsLast {
+			if totalWin > 0 {
+				finance = []json.RawMessage{payoutFinance(totalWin, round.BaseBetCents)}
+			}
+		} else if totalWin > 0 {
+			gameMap["freebet_acc_win"] = totalWin
+		}
+	} else {
+		finance = []json.RawMessage{payoutFinance(round.AccCents, round.BaseBetCents)}
+	}
+
+	if finance == nil {
+		finance = []json.RawMessage{}
+	}
+
 	result := PlayResult{
 		Final:   true,
-		Finance: []json.RawMessage{payoutFinance(round.AccCents, round.BaseBetCents)},
-		Game:    map[string]any{},
+		Finance: finance,
+		Game:    gameMap,
 		Round:   round,
 		Resp:    resp,
 	}
@@ -375,6 +442,28 @@ func derefStr(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+// getFreebetAccWin reads the accumulated freebet win from the game-state map.
+// JSON numbers deserialise as float64 via map[string]any, so we handle that case.
+func getFreebetAccWin(game map[string]any) int64 {
+	if game == nil {
+		return 0
+	}
+	v, ok := game["freebet_acc_win"]
+	if !ok {
+		return 0
+	}
+	switch x := v.(type) {
+	case float64:
+		return int64(x)
+	case int64:
+		return x
+	case json.Number:
+		n, _ := x.Int64()
+		return n
+	}
+	return 0
 }
 
 // payoutFinance marshals a win FinanceEvent.

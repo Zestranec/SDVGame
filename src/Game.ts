@@ -12,6 +12,8 @@ import { formatAmount } from './moneyFormat';
 import {
   RunnerClient,
   type GameResp,
+  type RunnerFreebets,
+  type RunnerPlayReq,
   toBigInt,
   parseTokenFromUrl,
   showFatalError,
@@ -188,7 +190,9 @@ export class Game {
   private async pollInfo(): Promise<void> {
     try {
       const res     = await this.runner.info();
+      const prevFb  = gameOptions.freebets;
       const changes = gameOptions.mergeFromInfo(res);
+      this._checkFreebetsEvents(prevFb, gameOptions.freebets);
       if (changes.balanceChanged) {
         this.economy.balance = gameOptions.balance;
         this.ui.setBalance(this.economy.balance);
@@ -199,6 +203,36 @@ export class Game {
     } catch (err) {
       if (import.meta.env.DEV) console.warn('[Runner] info poll failed:', err);
     }
+  }
+
+  /** Detect new freebet grants and completed freebet sequences, show popups. */
+  private _checkFreebetsEvents(prev: RunnerFreebets | null, curr: RunnerFreebets | null): void {
+    if (!curr) return;
+
+    // New grant: issued count increased since last seen
+    if (curr.issued > this._lastSeenFreebetsIssued) {
+      this._lastSeenFreebetsIssued = curr.issued;
+      if (this.state === 'running' || this.state === 'transitioning') {
+        this._pendingFreebetsAwardedCount = curr.issued;
+      } else {
+        this.ui.showPopupFreebetsAwarded(curr.issued);
+      }
+    }
+
+    // All freebets finished
+    if (curr.issued > 0 && curr.done === curr.issued) {
+      if (!prev || prev.done < prev.issued) {
+        this.ui.showPopupFreebetsFinished(curr.issued, BigInt(curr.total_win));
+      }
+    }
+  }
+
+  /** Update gameOptions.freebets from a play response and check for events. */
+  private _applyFreebetsFromPlay(freebets: RunnerFreebets | null | undefined): void {
+    if (freebets === undefined) return;
+    const prev = gameOptions.freebets;
+    gameOptions.freebets = freebets ?? null;
+    this._checkFreebetsEvents(prev, gameOptions.freebets);
   }
 
   // ── Boot (loading screen + Runner init) ───────────────────────────────────
@@ -221,6 +255,7 @@ export class Game {
       ]);
 
       gameOptions.populateFromInit(initResult);
+      this._lastSeenFreebetsIssued = gameOptions.freebets?.issued ?? 0;
       this.economy = new Economy(gameOptions.balance);
       this.ui.setCurrencyConfig(gameOptions.currency, gameOptions.feDecimals);
 
@@ -267,6 +302,12 @@ export class Game {
           },
         });
         this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
+        // Show deferred freebets-awarded popup now that we're back in idle state
+        if (this._pendingFreebetsAwardedCount !== null) {
+          const count = this._pendingFreebetsAwardedCount;
+          this._pendingFreebetsAwardedCount = null;
+          setTimeout(() => this.ui.showPopupFreebetsAwarded(count), 300);
+        }
         break;
       }
 
@@ -278,6 +319,12 @@ export class Game {
           roundValue: true, cashout: true, swipeHint: true,
           hintText: 'Swipe up to continue',
         });
+        if (this._currentBetType === 'freebet') {
+          const fb = gameOptions.freebets;
+          if (fb && fb.done < fb.issued) {
+            this.ui.showFreebetsCounter(fb.issued - fb.done, fb.issued);
+          }
+        }
         break;
 
       case 'transitioning':
@@ -288,6 +335,7 @@ export class Game {
       case 'win':
       case 'lose':
         this.swipe.setLocked(true);
+        this.ui.hideFreebetsCounter();
         break;
     }
   }
@@ -301,6 +349,16 @@ export class Game {
    * `busy` is the logical guard at the Game level.
    */
   private busy = false;
+
+  // ── Freebet tracking ───────────────────────────────────────────────────────
+  /** Whether the current round is the last freebet in the sequence. */
+  private _freebetsLast = false;
+  /** bet_type used for the currently active round. */
+  private _currentBetType: 'bet' | 'freebet' = 'bet';
+  /** Last observed freebets.issued — used to detect new grants. */
+  private _lastSeenFreebetsIssued = 0;
+  /** Deferred "freebets awarded" count to show once the current round ends. */
+  private _pendingFreebetsAwardedCount: number | null = null;
 
   private handleSwipeUp(): void {
     if (this.busy) return;
@@ -357,17 +415,19 @@ export class Game {
       return;
     }
 
+    this._currentBetType = betType;
+    const fb = gameOptions.freebets;
+    this._freebetsLast = betType === 'freebet' && fb != null && (fb.done + 1 === fb.issued);
+
     this.economy.onRoundStart();
     this.setState('transitioning');
 
     // ── Runner: start action ─────────────────────────────────────────────────
     let res;
     try {
-      res = await this.runner.play({
-        action:   'start',
-        bet:      Number(betValue),
-        bet_type: betType,
-      });
+      const req: RunnerPlayReq = { action: 'start', bet: Number(betValue), bet_type: betType };
+      if (this._freebetsLast) req.freebets_last = true;
+      res = await this.runner.play(req);
     } catch (err) {
       console.error('[Game] Runner error on start:', err);
       this.ui.showError(`Connection error — ${String(err)}`);
@@ -378,6 +438,7 @@ export class Game {
 
     // Runner is authoritative for balance after each play
     this.economy.balance = toBigInt(res.balance);
+    this._applyFreebetsFromPlay(res.freebets);
 
     if (!res.resp) {
       this.ui.showError('Invalid runner response (missing resp).');
@@ -415,7 +476,9 @@ export class Game {
     // ── Runner: swipe action ─────────────────────────────────────────────────
     let res;
     try {
-      res = await this.runner.play({ action: 'swipe' });
+      const req: RunnerPlayReq = { action: 'swipe' };
+      if (this._freebetsLast) req.freebets_last = true;
+      res = await this.runner.play(req);
     } catch (err) {
       console.error('[Game] Runner error on swipe:', err);
       this.ui.showError(`Connection error — ${String(err)}`);
@@ -424,6 +487,7 @@ export class Game {
     }
 
     this.economy.balance = toBigInt(res.balance);
+    this._applyFreebetsFromPlay(res.freebets);
 
     if (!res.resp) {
       this.ui.showError('Invalid runner response (missing resp).');
@@ -462,7 +526,9 @@ export class Game {
       // ── Runner: cashout action ────────────────────────────────────────────
       let res;
       try {
-        res = await this.runner.play({ action: 'cashout' });
+        const req: RunnerPlayReq = { action: 'cashout' };
+        if (this._freebetsLast) req.freebets_last = true;
+        res = await this.runner.play(req);
       } catch (err) {
         console.error('[Game] Runner error on cashout:', err);
         this.ui.showError('Cashout failed — please retry');
@@ -476,6 +542,7 @@ export class Game {
 
       const gross      = BigInt(res.resp.acc_cents);
       const newBalance = toBigInt(res.balance);
+      this._applyFreebetsFromPlay(res.freebets);
 
       this.economy.balance    = newBalance;
       this.economy.roundValue = 0n;
