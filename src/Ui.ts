@@ -224,51 +224,83 @@ export class Ui {
 
   // ── Freebet notifications ────────────────────────────────────────────────
 
-  /** Transient notification popup — auto-closes after 5 s, click to close. */
-  private _showNotificationPopup(message: string): void {
-    let el = document.getElementById('notif-popup') as HTMLElement | null;
+  /** Small glass toast below the HUD — auto-closes after 5 s, tap to close. */
+  showPopupFreebetsAwarded(count: number): void {
+    this._showToast(
+      'top',
+      `🎁  You've been awarded ${count} free play${count !== 1 ? 's' : ''}`,
+      5000,
+    );
+  }
+
+  /** Small bottom snackbar — auto-closes after 2.5 s, tap to close. */
+  showPopupFreebetsFinished(count: number, totalWin: bigint): void {
+    const winStr = this.ccy(this.fmtWin(totalWin));
+    this._showToast(
+      'bottom',
+      `FREE PLAYS OVER\nWon +${winStr}. Switching to balance.`,
+      2500,
+    );
+  }
+
+  /**
+   * Generic glass toast.
+   * pos='top'    → below the top HUD, horizontally centered
+   * pos='bottom' → above the bottom bar, horizontally centered
+   * The first line of message is rendered bold; subsequent lines are muted.
+   */
+  private _showToast(pos: 'top' | 'bottom', message: string, duration: number): void {
+    const id = pos === 'top' ? 'fb-toast-top' : 'fb-toast-bottom';
+    let el = document.getElementById(id) as HTMLElement | null;
     if (!el) {
       el = document.createElement('div');
-      el.id = 'notif-popup';
+      el.id = id;
       Object.assign(el.style, {
-        position:       'fixed',
-        top:            '50%',
-        left:           '50%',
-        transform:      'translate(-50%, -50%)',
-        background:     '#0d0020',
-        border:         '2px solid rgba(160,80,255,0.55)',
-        borderRadius:   '14px',
-        padding:        '28px 36px',
-        maxWidth:       '80vw',
-        textAlign:      'center',
-        color:          '#fff',
-        fontSize:       '16px',
-        fontWeight:     '700',
-        lineHeight:     '1.6',
-        zIndex:         '99999',
-        boxShadow:      '0 8px 32px rgba(0,0,0,0.85)',
-        cursor:         'pointer',
-        whiteSpace:     'pre-line',
+        position:          'fixed',
+        left:              '50%',
+        transform:         'translateX(-50%)',
+        background:        'rgba(14,14,14,0.90)',
+        border:            '1px solid rgba(255,255,255,0.13)',
+        borderRadius:      '18px',
+        padding:           '12px 20px',
+        maxWidth:          '80vw',
+        textAlign:         'center',
+        color:             '#fff',
+        fontSize:          '13px',
+        fontWeight:        '700',
+        lineHeight:        '1.55',
+        zIndex:            '9900',
+        cursor:            'pointer',
+        whiteSpace:        'pre-line',
+        backdropFilter:    'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
+        boxShadow:         '0 4px 24px rgba(0,0,0,0.7)',
+        letterSpacing:     '0.02em',
+        pointerEvents:     'all',
       });
+      if (pos === 'top') {
+        el.style.top = 'max(72px, calc(env(safe-area-inset-top) + 62px))';
+      } else {
+        el.style.bottom = 'max(90px, calc(env(safe-area-inset-bottom) + 82px))';
+      }
       el.addEventListener('click', () => { if (el) el.style.display = 'none'; });
       document.body.appendChild(el);
     }
-    el.textContent = message;
+
+    // First line bold, rest muted — render inline without extra DOM nodes
+    const lines = message.split('\n');
+    if (lines.length > 1) {
+      el.innerHTML =
+        `<span style="font-size:14px;font-weight:800">${lines[0]}</span>` +
+        `\n<span style="font-weight:500;color:rgba(255,255,255,0.62)">${lines.slice(1).join('\n')}</span>`;
+    } else {
+      el.textContent = message;
+    }
+
     el.style.display = 'block';
     clearTimeout((el as HTMLElement & { _t?: ReturnType<typeof setTimeout> })._t);
     (el as HTMLElement & { _t?: ReturnType<typeof setTimeout> })._t =
-      setTimeout(() => { if (el) el.style.display = 'none'; }, 5000);
-  }
-
-  showPopupFreebetsAwarded(count: number): void {
-    this._showNotificationPopup(`You have been rewarded with ${count} free plays`);
-  }
-
-  showPopupFreebetsFinished(count: number, totalWin: bigint): void {
-    const winStr = this.ccy(this.fmtWin(totalWin));
-    this._showNotificationPopup(
-      `You played ${count} free plays and won ${winStr}.\nNext swipes will be performed from your account balance.`,
-    );
+      setTimeout(() => { if (el) el.style.display = 'none'; }, duration);
   }
 
   // ── Freebets counter label ────────────────────────────────────────────────
@@ -280,28 +312,53 @@ export class Ui {
       const el = document.createElement('div');
       el.id = 'fb-counter';
       Object.assign(el.style, {
-        position:      'fixed',
-        top:           '12px',
-        left:          '50%',
-        transform:     'translateX(-50%)',
-        background:    'rgba(10,0,30,0.82)',
-        color:         '#d8b4fe',
-        padding:       '5px 18px',
-        borderRadius:  '20px',
-        fontSize:      '13px',
-        fontWeight:    '700',
-        zIndex:        '8888',
-        pointerEvents: 'none',
-        textAlign:     'center',
-        whiteSpace:    'nowrap',
-        border:        '1px solid rgba(160,80,255,0.35)',
-        letterSpacing: '0.03em',
+        position:          'fixed',
+        top:               'max(10px, env(safe-area-inset-top))',
+        right:             '16px',
+        display:           'flex',
+        flexDirection:     'column',
+        alignItems:        'center',
+        gap:               '1px',
+        background:        'rgba(255,255,255,0.10)',
+        border:            '1px solid rgba(255,255,255,0.18)',
+        borderRadius:      '10px',
+        padding:           '5px 10px',
+        backdropFilter:    'blur(10px)',
+        WebkitBackdropFilter: 'blur(10px)',
+        zIndex:            '8888',
+        pointerEvents:     'none',
+        minWidth:          '52px',
       });
+
+      const label = document.createElement('span');
+      Object.assign(label.style, {
+        fontSize:      '9px',
+        textTransform: 'uppercase',
+        letterSpacing: '1.2px',
+        color:         'rgba(255,255,255,0.55)',
+        fontWeight:    '600',
+      });
+      label.textContent = '🎁 FREE';
+
+      const value = document.createElement('span');
+      Object.assign(value.style, {
+        fontSize:   '15px',
+        fontWeight: '700',
+        color:      '#fff',
+        textShadow: '0 1px 6px rgba(0,0,0,0.9)',
+        lineHeight: '1.2',
+      });
+      value.id = 'fb-counter-value';
+
+      el.appendChild(label);
+      el.appendChild(value);
       document.body.appendChild(el);
       this._fbCounterEl = el;
     }
-    this._fbCounterEl.textContent = `Free Plays  ${remaining} / ${total}`;
-    this._fbCounterEl.style.display = 'block';
+
+    const valEl = document.getElementById('fb-counter-value');
+    if (valEl) valEl.textContent = `${remaining} / ${total}`;
+    this._fbCounterEl.style.display = 'flex';
   }
 
   hideFreebetsCounter(): void {
