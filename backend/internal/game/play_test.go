@@ -280,6 +280,50 @@ func TestMaxWin(t *testing.T) {
 	assertFinanceEvent(t, "maxwin finance[0]", res3.Finance[0], "win", capCents)
 }
 
+// ── Test: performDraw determinism (fixed input → fixed output) ───────────────
+
+// TestPerformDrawDeterminism verifies that fixed Draw values always produce
+// the same outcome and content_id, regardless of when the test is run.
+//
+// Expected content IDs are computed via idxMulHi:
+//
+//	bomb:         idxMulHi(normalU2=100000000, 5)+1  = floor(100000000*5/2^32)+1  = 0+1 = 1  → "bomb_1"
+//	viral_boost:  idxMulHi(safeU1=858993459,  4)+1  = floor(858993459*4/2^32)+1  = 0+1 = 1  → "buff_1"
+//	safe:         idxMulHi(normalU2=100000000,24)+1  = floor(100000000*24/2^32)+1 = 0+1 = 1  → "safe_1"
+func TestPerformDrawDeterminism(t *testing.T) {
+	cases := []struct {
+		name          string
+		draw          rng.Draw
+		wantOutcome   string
+		wantContentID string
+	}{
+		{"bomb",        rng.Draw{U1: bombU1, U2: normalU2}, "bomb",        "bomb_1"},
+		{"viral_boost", rng.Draw{U1: safeU1, U2: boostU2},  "viral_boost", "buff_1"},
+		{"safe",        rng.Draw{U1: safeU1, U2: normalU2}, "safe",        "safe_1"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			q := &rngQueue{draws: []rng.Draw{tc.draw}}
+			restore := q.install()
+			defer restore()
+
+			res, err := game.Play(context.Background(), game.PlayParams{
+				Req: game.Req{Action: "start", Bet: 1000, BetType: "bet"},
+			}, rngURL, false, "USD")
+			if err != nil {
+				t.Fatalf("Play: %v", err)
+			}
+			if res.Resp.Outcome == nil || *res.Resp.Outcome != tc.wantOutcome {
+				t.Errorf("outcome=%v want %q", res.Resp.Outcome, tc.wantOutcome)
+			}
+			if res.Resp.ContentID == nil || *res.Resp.ContentID != tc.wantContentID {
+				t.Errorf("content_id=%v want %q", res.Resp.ContentID, tc.wantContentID)
+			}
+		})
+	}
+}
+
 // ── Helper ────────────────────────────────────────────────────────────────────
 
 // assertFinanceEvent checks that a raw finance JSON record has the exact

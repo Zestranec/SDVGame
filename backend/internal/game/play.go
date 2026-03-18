@@ -310,15 +310,35 @@ func handleCashout(ctx context.Context, params PlayParams, currencyCode string) 
 
 // ── Draw logic ───────────────────────────────────────────────────────────────
 
+// idxMulHi maps a uint32 uniformly into [0, n) using the multiply-high trick:
+//
+//	floor(u * n / 2^32)
+//
+// This avoids modulo bias for n values that don't divide 2^32 (e.g. 5, 24)
+// and never requires rejection sampling, keeping RNG consumption fixed.
+func idxMulHi(u, n uint32) uint32 {
+	return uint32((uint64(u) * uint64(n)) >> 32)
+}
+
 // performDraw applies one RNG draw to the round state.
 // Returns: outcome, multBP (basis points), contentID, final, endedBy.
 // multBP is 0 for bomb (no multiplier applied).
+//
+// RNG usage (2×u32 per call, fixed, no rejection):
+//
+// Outcome and content selection always use different u32s to avoid correlation
+// and to ensure the content index covers the full [0,n) range uniformly:
+//
+//	bomb:        f1 < BombProb           (U1); content idx = idxMulHi(U2, 5)
+//	viral_boost: f2 < BoostProbGivenSafe (U2); content idx = idxMulHi(U1, 4)
+//	safe:        otherwise               (U1); content idx = idxMulHi(U2, 24)
 func performDraw(draw rng.Draw, round *Round) (string, int, string, bool, *string) {
 	f1 := rng.ToFloat(draw.U1)
 	f2 := rng.ToFloat(draw.U2)
 
 	if f1 < BombProb {
-		contentID := fmt.Sprintf("bomb_%d", (draw.U1%5)+1)
+		// U1 decided outcome; use U2 for content to avoid correlation.
+		contentID := fmt.Sprintf("bomb_%d", idxMulHi(draw.U2, 5)+1)
 		endedBy := "bomb"
 		round.AccCents = 0
 		round.Alive = false
@@ -331,13 +351,16 @@ func performDraw(draw rng.Draw, round *Round) (string, int, string, bool, *strin
 	var contentID string
 
 	if f2 < BoostProbGivenSafe {
+		// U2 decided outcome; use U1 for content to avoid correlation.
 		outcome = "viral_boost"
 		multBP = int(BoostMultBP)
-		contentID = fmt.Sprintf("buff_%d", (draw.U2%4)+1)
+		contentID = fmt.Sprintf("buff_%d", idxMulHi(draw.U1, 4)+1)
 	} else {
+		// Safe: U1 determined not-bomb; use U2 for content so the index spans
+		// the full [0,24) range regardless of the BombProb threshold on U1.
 		outcome = "safe"
 		multBP = int(NormalSafeMultBP)
-		contentID = fmt.Sprintf("safe_%d", (draw.U1%16)+1)
+		contentID = fmt.Sprintf("safe_%d", idxMulHi(draw.U2, 24)+1)
 	}
 
 	// Integer fixed-point multiplication, round-half-up.
