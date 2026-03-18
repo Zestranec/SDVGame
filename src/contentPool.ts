@@ -4,7 +4,7 @@
  * this file is the single place that translates IDs to actual URLs.
  *
  * Naming convention:
- *   safe_1..safe_16  — safe card clips
+ *   safe_1..safe_24  — safe card clips (safe_9 fallback to safe_1)
  *   bomb_1..bomb_5   — bomb_1 falls back to bomb.mp4 (generic); rest are numbered
  *   buff_1..buff_4   — buff_1 falls back to buff.mp4 (generic); rest are numbered
  */
@@ -21,7 +21,7 @@ const CONTENT_MAP: Record<string, string> = {
   safe_6:  'safe_6.mp4',
   safe_7:  'safe_7.mp4',
   safe_8:  'safe_8.mp4',
-  safe_9:  'safe_1.mp4',   // safe_9 not on CDN → fallback
+  safe_9:  'safe_9.mp4',
   safe_10: 'safe_10.mp4',
   safe_11: 'safe_11.mp4',
   safe_12: 'safe_12.mp4',
@@ -29,6 +29,14 @@ const CONTENT_MAP: Record<string, string> = {
   safe_14: 'safe_14.mp4',
   safe_15: 'safe_15.mp4',
   safe_16: 'safe_16.mp4',
+  safe_17: 'safe_17.mp4',
+  safe_18: 'safe_18.mp4',
+  safe_19: 'safe_19.mp4',
+  safe_20: 'safe_20.mp4',
+  safe_21: 'safe_21.mp4',
+  safe_22: 'safe_22.mp4',
+  safe_23: 'safe_23.mp4',
+  safe_24: 'safe_24.mp4',
 
   // Bomb clips (bomb_1 → generic bomb.mp4)
   bomb_1: 'bomb.mp4',
@@ -58,14 +66,14 @@ export function contentUrl(contentId: string): string {
 }
 
 /**
- * Returns all unique safe-clip CDN URLs (safe_1..safe_16, deduplicated by URL).
+ * Returns all unique safe-clip CDN URLs (safe_1..safe_24, deduplicated by URL).
  * Used by the video preloader to pick random safe videos to warm up.
  * Bomb / buff URLs are intentionally excluded so preloads never reveal
  * the next outcome.
  */
 export function allSafeUrls(): string[] {
   const seen = new Set<string>();
-  for (let i = 1; i <= 16; i++) {
+  for (let i = 1; i <= 24; i++) {
     seen.add(contentUrl(`safe_${i}`));
   }
   return [...seen];
