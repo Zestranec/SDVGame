@@ -275,7 +275,7 @@ export class Game {
       this.replaySteps = result.steps;
       this.replayIndex = 0;
       gameOptions.populateFromReplay(result);
-      this.economy = new Economy(toBigInt(result.balance));
+      this.economy = new Economy(safeBI(result.balance));
       this.ui.setCurrencyConfig(gameOptions.currency, gameOptions.feDecimals);
     } catch (err) {
       scene.destroy();
@@ -309,25 +309,33 @@ export class Game {
   private async playReplayStep(): Promise<void> {
     if (this.replayIndex >= this.replaySteps.length) return;
     const step    = this.replaySteps[this.replayIndex];
-    const balance = toBigInt(step.balance);
-    const accCents = BigInt(step.resp.acc_cents);
+    const resp    = step.resp as GameResp | undefined;
+    const balance  = safeBI(step.balance);
+    const accCents = safeBI(resp?.acc_cents);
 
     // Hide any previous popup (e.g. navigating back from final step)
     this.ui.hidePopup();
 
-    const card = this.buildCardFromResp(step.resp);
+    // Guard: if resp is missing, show a blank frame rather than crashing
+    if (!resp) {
+      if (import.meta.env.DEV) console.warn('[Replay] step missing resp at index', this.replayIndex, step);
+      this.ui.setBalance(balance);
+      this.ui.updateReplayControls(this.replayIndex, this.replaySteps.length);
+      return;
+    }
+
+    const card = this.buildCardFromResp(resp);
     this.renderer.primeCard(card);
     await this.renderer.transitionTo(card);
 
-    this.economy.setRoundValueFromBackend(accCents, step.resp.step);
+    this.economy.setRoundValueFromBackend(accCents, resp.step ?? 0);
     this.ui.setBalance(balance);
-    this.ui.setRoundValue(this.economy.roundValue, this._replayMultiplier(step.resp));
+    this.ui.setRoundValue(this.economy.roundValue, this._replayMultiplier(resp));
     this.ui.showBottomBar({ roundValue: true, cashout: false, swipeHint: false });
     this.ui.updateReplayControls(this.replayIndex, this.replaySteps.length);
 
     // Final step: show outcome popup after the card animation settles
     if (step.final) {
-      const resp = step.resp;
       setTimeout(() => {
         if (resp.outcome === 'bomb') {
           this.ui.showPopupLose(balance, 0n);
@@ -747,6 +755,18 @@ export class Game {
     }
     this.setState('intro');
   }
+}
+
+/**
+ * Null-safe BigInt conversion for untrusted runtime values (replay payloads).
+ * Returns `fallback` (default 0n) instead of throwing when the value is
+ * undefined, null, NaN, or otherwise unconvertible.
+ */
+function safeBI(v: unknown, fallback = 0n): bigint {
+  if (typeof v === 'bigint') return v;
+  if (typeof v === 'number' && Number.isFinite(v)) return BigInt(Math.trunc(v));
+  if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) return BigInt(v.trim());
+  return fallback;
 }
 
 function delay(ms: number): Promise<void> {
