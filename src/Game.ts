@@ -240,10 +240,17 @@ export class Game {
       }
     }
 
-    // All freebets finished
+    // All freebets finished — show full collect popup
     if (curr.issued > 0 && curr.done === curr.issued) {
       if (!prev || prev.done < prev.issued) {
-        this.ui.showPopupFreebetsFinished(curr.issued, BigInt(curr.total_win));
+        if (this.state === 'intro') {
+          // Detected via poll while at intro: show immediately
+          this.swipe.setLocked(true);
+          this.ui.showPopupFreebetsOver(BigInt(curr.total_win), curr.issued, this.economy.balance);
+        } else if (!this._pendingFreebetsOver) {
+          // Mid/end of round: defer until the current popup is dismissed
+          this._pendingFreebetsOver = true;
+        }
       }
     }
   }
@@ -385,6 +392,13 @@ export class Game {
           },
         });
         this.ui.showBottomBar({ roundValue: false, cashout: false, swipeHint: false });
+        // Show freebets HUD if there are active freebets
+        const fbIntro = gameOptions.freebets;
+        if (fbIntro && fbIntro.issued > 0 && fbIntro.done < fbIntro.issued) {
+          this.ui.showFreebetsCounter(fbIntro.done, fbIntro.issued, BigInt(fbIntro.total_win));
+        } else {
+          this.ui.hideFreebetsCounter();
+        }
         // Show deferred freebets-awarded popup now that we're back in idle state
         if (this._pendingFreebetsAwardedCount !== null) {
           const count = this._pendingFreebetsAwardedCount;
@@ -405,7 +419,7 @@ export class Game {
         if (this._currentBetType === 'freebet') {
           const fb = gameOptions.freebets;
           if (fb && fb.done < fb.issued) {
-            this.ui.showFreebetsCounter(fb.issued - fb.done, fb.issued);
+            this.ui.showFreebetsCounter(fb.done, fb.issued, BigInt(fb.total_win));
           }
         }
         break;
@@ -447,6 +461,8 @@ export class Game {
   private _lastSeenFreebetsIssued = 0;
   /** Deferred "freebets awarded" count to show once the current round ends. */
   private _pendingFreebetsAwardedCount: number | null = null;
+  /** Pending "freebets over" popup — show at next handlePopupButton call. */
+  private _pendingFreebetsOver = false;
 
   private handleSwipeUp(): void {
     if (this.busy) return;
@@ -699,6 +715,16 @@ export class Game {
   // ── Popup button ───────────────────────────────────────────────────────────
 
   private handlePopupButton(): void {
+    if (this._pendingFreebetsOver) {
+      this._pendingFreebetsOver = false;
+      const fb = gameOptions.freebets;
+      this.ui.showPopupFreebetsOver(
+        BigInt(fb?.total_win ?? 0),
+        fb?.issued ?? 0,
+        this.economy.balance,
+      );
+      return; // swipe stays locked; next click will setState('intro')
+    }
     this.setState('intro');
   }
 }

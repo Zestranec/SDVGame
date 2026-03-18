@@ -312,7 +312,7 @@ export class Ui {
 
   private _fbCounterEl: HTMLElement | null = null;
 
-  showFreebetsCounter(remaining: number, total: number): void {
+  showFreebetsCounter(done: number, issued: number, totalWin: bigint): void {
     if (!this._fbCounterEl) {
       const el = document.createElement('div');
       el.id = 'fb-counter';
@@ -327,12 +327,12 @@ export class Ui {
         background:        'rgba(255,255,255,0.10)',
         border:            '1px solid rgba(255,255,255,0.18)',
         borderRadius:      '10px',
-        padding:           '5px 10px',
+        padding:           '6px 10px',
         backdropFilter:    'blur(10px)',
         WebkitBackdropFilter: 'blur(10px)',
         zIndex:            '8888',
         pointerEvents:     'none',
-        minWidth:          '52px',
+        minWidth:          '72px',
       });
 
       const label = document.createElement('span');
@@ -343,27 +343,68 @@ export class Ui {
         color:         'rgba(255,255,255,0.55)',
         fontWeight:    '600',
       });
-      label.textContent = '🎁 FREE';
+      label.textContent = '🎁 FREE PLAYS';
 
-      const value = document.createElement('span');
-      Object.assign(value.style, {
+      const progress = document.createElement('span');
+      Object.assign(progress.style, {
         fontSize:   '15px',
         fontWeight: '700',
         color:      '#fff',
         textShadow: '0 1px 6px rgba(0,0,0,0.9)',
         lineHeight: '1.2',
       });
-      value.id = 'fb-counter-value';
+      progress.id = 'fb-counter-progress';
+
+      const winLabel = document.createElement('span');
+      Object.assign(winLabel.style, {
+        fontSize:      '8px',
+        textTransform: 'uppercase',
+        letterSpacing: '1px',
+        color:         'rgba(255,255,255,0.40)',
+        fontWeight:    '600',
+        marginTop:     '3px',
+      });
+      winLabel.textContent = 'TOTAL WIN';
+
+      const winValue = document.createElement('span');
+      Object.assign(winValue.style, {
+        fontSize:   '11px',
+        fontWeight: '700',
+        color:      '#4ade80',
+        textShadow: '0 1px 4px rgba(0,0,0,0.8)',
+        lineHeight: '1.2',
+      });
+      winValue.id = 'fb-counter-win';
 
       el.appendChild(label);
-      el.appendChild(value);
+      el.appendChild(progress);
+      el.appendChild(winLabel);
+      el.appendChild(winValue);
       this._frame.appendChild(el);
       this._fbCounterEl = el;
     }
 
-    const valEl = document.getElementById('fb-counter-value');
-    if (valEl) valEl.textContent = `${remaining} / ${total}`;
+    const progressEl = document.getElementById('fb-counter-progress');
+    const winEl      = document.getElementById('fb-counter-win');
+    if (progressEl) progressEl.textContent = `${done} / ${issued}`;
+    if (winEl)      winEl.textContent      = this.ccy(this.fmtWin(totalWin));
     this._fbCounterEl.style.display = 'flex';
+  }
+
+  showPopupFreebetsOver(totalWin: bigint, rounds: number, balance: bigint): void {
+    const win = this.fmtWin(totalWin);
+    const bal = this.fmtBalance(balance);
+
+    this.popupTitle.textContent    = 'FREE PLAYS OVER';
+    this.popupAmount.textContent   = `+${this.ccy(win)}`;
+    this.popupAmount.className     = 'win';
+    this.popupAmount.style.display = 'block';
+    this.popupSubtitle.textContent = 'Next swipes will be from your account funds.';
+    this.popupBalance.textContent  =
+      `Won +${this.ccy(win)} in ${rounds} round${rounds !== 1 ? 's' : ''} · Balance: ${this.ccy(bal)}`;
+    this.popupBtn.textContent      = 'COLLECT';
+    this.popupBtn.className        = 'popup-btn success';
+    this._showPopup();
   }
 
   hideFreebetsCounter(): void {
