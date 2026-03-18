@@ -243,13 +243,16 @@ export class Game {
     // All freebets finished — show full collect popup
     if (curr.issued > 0 && curr.done === curr.issued) {
       if (!prev || prev.done < prev.issued) {
+        // Capture values NOW from curr — gameOptions.freebets may be null by popup time
+        const overData = { totalWin: BigInt(curr.total_win), rounds: curr.done };
         if (this.state === 'intro') {
           // Detected via poll while at intro: show immediately
           this.swipe.setLocked(true);
-          this.ui.showPopupFreebetsOver(BigInt(curr.total_win), curr.issued, this.economy.balance);
+          this.ui.showPopupFreebetsOver(overData.totalWin, overData.rounds, this.economy.balance);
         } else if (!this._pendingFreebetsOver) {
           // Mid/end of round: defer until the current popup is dismissed
           this._pendingFreebetsOver = true;
+          this._freebetsOverData = overData;
         }
       }
     }
@@ -463,6 +466,8 @@ export class Game {
   private _pendingFreebetsAwardedCount: number | null = null;
   /** Pending "freebets over" popup — show at next handlePopupButton call. */
   private _pendingFreebetsOver = false;
+  /** Captured freebets totals at the moment the completion was detected. */
+  private _freebetsOverData: { totalWin: bigint; rounds: number } | null = null;
 
   private handleSwipeUp(): void {
     if (this.busy) return;
@@ -715,14 +720,11 @@ export class Game {
   // ── Popup button ───────────────────────────────────────────────────────────
 
   private handlePopupButton(): void {
-    if (this._pendingFreebetsOver) {
+    if (this._pendingFreebetsOver && this._freebetsOverData) {
+      const { totalWin, rounds } = this._freebetsOverData;
       this._pendingFreebetsOver = false;
-      const fb = gameOptions.freebets;
-      this.ui.showPopupFreebetsOver(
-        BigInt(fb?.total_win ?? 0),
-        fb?.issued ?? 0,
-        this.economy.balance,
-      );
+      this._freebetsOverData    = null;
+      this.ui.showPopupFreebetsOver(totalWin, rounds, this.economy.balance);
       return; // swipe stays locked; next click will setState('intro')
     }
     this.setState('intro');
