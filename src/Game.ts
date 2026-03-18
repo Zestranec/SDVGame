@@ -1,11 +1,9 @@
-import { Rng } from './Rng';
+
 import { Economy } from './Economy';
 import { Renderer } from './Renderer';
 import { Ui } from './Ui';
-import { INTRO_CARD, BOMB_CARD, VIRAL_BOOST_CARD, type CardDef } from './Card';
+import { INTRO_CARD, BOMB_CARD, VIRAL_BOOST_CARD, SAFE_CARD_BASE, type CardDef } from './Card';
 import { LoadingScene, LOADING_MIN_MS } from './LoadingScene';
-import { CardStyleController } from './CardStyleController';
-import { SAFE_CARDS_CONFIG } from './config/safeCards';
 import { contentUrl, allSafeUrls } from './contentPool';
 import { gameOptions } from './GameOptions';
 import { formatAmount } from './moneyFormat';
@@ -103,9 +101,6 @@ export class Game {
   private swipe: SwipeInput;
   private muted = false;
 
-  // Visual-only RNG (safe card template selection — NOT outcome generation).
-  private visualRng: Rng = new Rng(Math.floor(Math.random() * 1_000_000_000));
-  private styleCtrl = new CardStyleController();
 
   /** Info polling handle — refreshes balance/freebets from runner every ~8 s. */
   private infoTimer: ReturnType<typeof setInterval> | null = null;
@@ -518,33 +513,21 @@ export class Game {
   // ── Card factory ───────────────────────────────────────────────────────────
 
   /**
-   * Build a CardDef from a backend response:
-   * - outcome type (bomb / viral_boost / safe) comes from the backend
-   * - videoUrl comes from the backend's content_id (via contentPool)
-   * - safe card visual template is picked client-side (cosmetic only, not an outcome)
+   * Build a CardDef from a backend response.
+   * Outcome type and video URL are fully determined by the backend (content_id).
+   * All gameplay cards are video-based.
    */
   private buildCardFromResp(resp: GameResp): CardDef {
     const videoUrl = contentUrl(resp.content_id);
 
-    if (resp.outcome === 'bomb') {
-      return { ...BOMB_CARD, videoUrl };
-    }
-
-    if (resp.outcome === 'viral_boost') {
-      return { ...VIRAL_BOOST_CARD, videoUrl };
-    }
-
-    // Safe card: pick a random visual template (cosmetic, no outcome significance)
-    const config = SAFE_CARDS_CONFIG[this.visualRng.nextInt(SAFE_CARDS_CONFIG.length)];
-    const def    = this.styleCtrl.buildCardDef(config);
-    return { ...def, videoUrl };
+    if (resp.outcome === 'bomb')        return { ...BOMB_CARD,      videoUrl };
+    if (resp.outcome === 'viral_boost') return { ...VIRAL_BOOST_CARD, videoUrl };
+    return { ...SAFE_CARD_BASE, id: resp.content_id, videoUrl };
   }
 
   // ── Round start ────────────────────────────────────────────────────────────
 
   private async beginRound(): Promise<void> {
-    // Reseed visual RNG for variety each round (not used for outcomes)
-    this.visualRng = new Rng(Math.floor(Math.random() * 1_000_000_000));
 
     const bet      = this.currentBet;
     const betType  = gameOptions.shouldUseFreebet() ? 'freebet' : 'bet';

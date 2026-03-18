@@ -1,14 +1,12 @@
 import type { Rng } from './Rng';
 import { OutcomeController } from './OutcomeController';
-import { BOMB_CARD, VIRAL_BOOST_CARD, type CardDef } from './Card';
-import { SAFE_CARDS_CONFIG } from './config/safeCards';
-import { CardStyleController } from './CardStyleController';
+import { BOMB_CARD, VIRAL_BOOST_CARD, SAFE_CARD_BASE, type CardDef } from './Card';
 import { BOMB_VIDEO_URLS, SAFE_VIDEO_URLS, BUFF_VIDEO_URLS } from './config/videoCdnUrls';
 
 /**
  * Manages the sequence of cards shown in a round.
  * Card type (bomb / viral_boost / safe) is decided per-draw by OutcomeController.
- * Safe card identity and visuals are derived deterministically by CardStyleController.
+ * All gameplay cards are video-based; safe cards use SAFE_CARD_BASE with a video URL.
  */
 /** Fisher-Yates shuffled deck that cycles through all items before repeating. */
 class ShuffleDeck<T> {
@@ -35,17 +33,13 @@ class ShuffleDeck<T> {
 }
 
 export class ReelEngine {
-  private readonly rng: Rng;
   private readonly outcomeCtrl: OutcomeController;
-  private readonly styleCtrl: CardStyleController;
   private readonly safeDeck: ShuffleDeck<string>;
   private readonly bombDeck: ShuffleDeck<string>;
   private readonly buffDeck: ShuffleDeck<string>;
 
   constructor(rng: Rng, outcomeCtrl: OutcomeController) {
-    this.rng         = rng;
     this.outcomeCtrl = outcomeCtrl;
-    this.styleCtrl   = new CardStyleController();
     this.safeDeck    = new ShuffleDeck(SAFE_VIDEO_URLS, rng);
     this.bombDeck    = new ShuffleDeck(BOMB_VIDEO_URLS, rng);
     this.buffDeck    = new ShuffleDeck(BUFF_VIDEO_URLS, rng);
@@ -66,8 +60,6 @@ export class ReelEngine {
       return { ...VIRAL_BOOST_CARD, videoUrl: this.buffDeck.next() };
     }
 
-    const config = SAFE_CARDS_CONFIG[this.rng.nextInt(SAFE_CARDS_CONFIG.length)];
-    const def    = this.styleCtrl.buildCardDef(config);
-    return { ...def, videoUrl: this.safeDeck.next() };
+    return { ...SAFE_CARD_BASE, videoUrl: this.safeDeck.next() };
   }
 }

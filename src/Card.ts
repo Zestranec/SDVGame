@@ -1,8 +1,10 @@
 /**
- * Card type definitions and special (non-procedural) card instances.
+ * Card type definitions and special card instances.
  *
- * Normal safe cards are NOT defined here — they are generated procedurally
- * by CardStyleController from SAFE_CARDS_CONFIG in src/config/safeCards.ts.
+ * Gameplay cards (safe / bomb / viral_boost) are always video-based.
+ * SAFE_CARD_BASE provides the minimal non-video fields required by CardDef
+ * so gameplay code can build a safe CardDef without any text-card logic.
+ * The intro card retains its full text/image fields for the title screen.
  */
 
 export type CardAnimType =
@@ -55,6 +57,24 @@ export interface CardDef {
    */
   imagePath?: string;
 }
+
+// ── Safe gameplay card base (video-only) ──────────────────────────────────────
+
+/**
+ * Minimal CardDef template for safe gameplay cards.
+ * All safe cards are video-based; the legacy text fields are empty placeholders
+ * that are never rendered (Renderer routes videoUrl cards to buildVideoCard).
+ * Spread this and add { id, videoUrl } to build a safe card.
+ */
+export const SAFE_CARD_BASE: Omit<CardDef, 'videoUrl'> = {
+  id:       'safe',
+  type:     'safe',
+  emoji:    '',
+  headline: '',
+  subline:  '',
+  colors:   ['#0d0005', '#1a000a'],
+  animType: 'float',
+};
 
 // ── BOMB CARD ─────────────────────────────────────────────────────────────────
 
