@@ -21,15 +21,61 @@
         -webkit-tap-highlight-color: transparent;
       }
 
-      #game-canvas {
+      /* ── App shell + portrait frame ──────────────────────────────── */
+      #app-shell {
         position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #0d0d0d;
+      }
+
+      #game-frame {
+        position: relative;
+        /* 9:16 portrait, constrained to viewport */
+        width: min(calc(95svh * 9 / 16), 100svw);
+        aspect-ratio: 9 / 16;
+        overflow: hidden;
+        background: #000;
+      }
+
+      /* Desktop: phone-screen border + side letterbox bg */
+      @media (min-width: 769px) {
+        #app-shell {
+          background:
+            radial-gradient(ellipse at 20% 50%, rgba(40,20,80,0.35) 0%, transparent 60%),
+            radial-gradient(ellipse at 80% 50%, rgba(20,40,80,0.25) 0%, transparent 60%),
+            #0d0d0d;
+        }
+        #game-frame {
+          border-radius: 40px;
+          box-shadow:
+            0 0 0 1px rgba(255,255,255,0.10),
+            0 24px 80px rgba(0,0,0,0.95),
+            0 0 120px rgba(0,0,0,0.6);
+        }
+      }
+
+      /* Mobile: full screen, no chrome */
+      @media (max-width: 768px) {
+        #game-frame {
+          width: 100svw;
+          height: 100svh;
+          aspect-ratio: unset;
+          border-radius: 0;
+        }
+      }
+
+      #game-canvas {
+        position: absolute;
         top: 0; left: 0;
         width: 100%; height: 100%;
         display: block;
       }
 
       #ui-overlay {
-        position: fixed;
+        position: absolute;
         top: 0; left: 0;
         width: 100%; height: 100%;
         pointer-events: none;
@@ -344,6 +390,8 @@
     </style>
   </head>
   <body>
+    <div id="app-shell">
+    <div id="game-frame">
     <canvas id="game-canvas"></canvas>
 
     <div id="ui-overlay">
@@ -404,6 +452,8 @@
       </div>
     </div>
 
+    </div><!-- #game-frame -->
+    </div><!-- #app-shell -->
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

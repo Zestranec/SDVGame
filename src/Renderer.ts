@@ -464,8 +464,9 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
   let chev1BaseY = betOpts ? h - 108 : h - 64;
   let chev2BaseY = betOpts ? h - 130 : h - 86;
   const onResize = () => {
-    const nw = window.innerWidth;
-    const nh = window.innerHeight;
+    const _frame = document.getElementById('game-frame') ?? document.documentElement;
+    const nw = _frame.clientWidth  || window.innerWidth;
+    const nh = _frame.clientHeight || window.innerHeight;
     bg.x = nw / 2;
     bg.y = nh / 2;
     applyCover(bg, nw, nh);
@@ -1070,9 +1071,14 @@ export class Renderer {
   private readonly videoCache = new VideoCache();
 
   constructor(canvas: HTMLCanvasElement) {
+    const frame = document.getElementById('game-frame') ?? document.documentElement;
+    const initW = frame.clientWidth  || window.innerWidth;
+    const initH = frame.clientHeight || window.innerHeight;
+
     this.app = new PIXI.Application({
       view: canvas,
-      resizeTo: window,
+      width: initW,
+      height: initH,
       resolution: window.devicePixelRatio || 1,
       autoDensity: true,
       backgroundColor: 0x000000,
@@ -1089,6 +1095,18 @@ export class Renderer {
       // Pump all live video canvas textures (the ONLY place update() is called)
       for (const vct of this.activeVcTextures) vct.tick();
     });
+
+    // Resize renderer whenever #game-frame changes size (desktop window resize etc.)
+    const onFrameResize = () => {
+      const w = frame.clientWidth;
+      const h = frame.clientHeight;
+      if (w > 0 && h > 0) this.app.renderer.resize(w, h);
+    };
+    if (typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(onFrameResize).observe(frame);
+    } else {
+      window.addEventListener('resize', onFrameResize, { passive: true });
+    }
   }
 
   get width(): number { return this.app.screen.width; }

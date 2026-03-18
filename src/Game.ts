@@ -122,7 +122,7 @@ export class Game {
       this.renderer   = new Renderer(canvas);
       this.ui         = new Ui();
       // Swipe input is a no-op in replay (navigation via dedicated controls)
-      this.swipe      = new SwipeInput(document.body, () => {});
+      this.swipe      = new SwipeInput(document.getElementById('game-frame') ?? document.body, () => {});
       // Dummy runner — only runner.replay() will be called, which needs no token
       this.runner     = new RunnerClient('');
       this.setState('loading');
@@ -153,7 +153,7 @@ export class Game {
       this.ui.soundBtn.textContent = this.muted ? '🔇' : '🔊';
     });
 
-    this.swipe = new SwipeInput(document.body, () => this.handleSwipeUp());
+    this.swipe = new SwipeInput(document.getElementById('game-frame') ?? document.body, () => this.handleSwipeUp());
 
     this.ui.setBalance(0n);
     this.ui.clearRoundHud();

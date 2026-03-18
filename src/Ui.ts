@@ -48,6 +48,11 @@ export class Ui {
     this.feDecimals = feDecimals;
   }
 
+  /** Returns #game-frame (or body as fallback) — parent for dynamically injected overlays. */
+  private get _frame(): HTMLElement {
+    return document.getElementById('game-frame') ?? document.body;
+  }
+
   // ── Internal helpers ──────────────────────────────────────────────────────
 
   /** Format an amount for bet display (no trailing-zero trimming). */
@@ -195,7 +200,7 @@ export class Ui {
       toast = document.createElement('div');
       toast.id = 'error-toast';
       Object.assign(toast.style, {
-        position:      'fixed',
+        position:      'absolute',
         top:           '70px',
         left:          '50%',
         transform:     'translateX(-50%)',
@@ -208,10 +213,10 @@ export class Ui {
         zIndex:        '9999',
         pointerEvents: 'none',
         textAlign:     'center',
-        maxWidth:      '80vw',
+        maxWidth:      '80%',
         boxShadow:     '0 2px 12px rgba(0,0,0,0.5)',
       });
-      document.body.appendChild(toast);
+      this._frame.appendChild(toast);
     }
     toast.textContent = message;
     toast.style.display = 'block';
@@ -256,14 +261,14 @@ export class Ui {
       el = document.createElement('div');
       el.id = id;
       Object.assign(el.style, {
-        position:          'fixed',
+        position:          'absolute',
         left:              '50%',
         transform:         'translateX(-50%)',
         background:        'rgba(14,14,14,0.90)',
         border:            '1px solid rgba(255,255,255,0.13)',
         borderRadius:      '18px',
         padding:           '12px 20px',
-        maxWidth:          '80vw',
+        maxWidth:          '80%',
         textAlign:         'center',
         color:             '#fff',
         fontSize:          '13px',
@@ -284,7 +289,7 @@ export class Ui {
         el.style.bottom = 'max(90px, calc(env(safe-area-inset-bottom) + 82px))';
       }
       el.addEventListener('click', () => { if (el) el.style.display = 'none'; });
-      document.body.appendChild(el);
+      this._frame.appendChild(el);
     }
 
     // First line bold, rest muted — render inline without extra DOM nodes
@@ -312,7 +317,7 @@ export class Ui {
       const el = document.createElement('div');
       el.id = 'fb-counter';
       Object.assign(el.style, {
-        position:          'fixed',
+        position:          'absolute',
         top:               'max(10px, env(safe-area-inset-top))',
         right:             '16px',
         display:           'flex',
@@ -352,7 +357,7 @@ export class Ui {
 
       el.appendChild(label);
       el.appendChild(value);
-      document.body.appendChild(el);
+      this._frame.appendChild(el);
       this._fbCounterEl = el;
     }
 
@@ -404,7 +409,7 @@ export class Ui {
 
     const wrap = document.createElement('div');
     Object.assign(wrap.style, {
-      position:       'fixed',
+      position:       'absolute',
       bottom:         '32px',
       left:           '50%',
       transform:      'translateX(-50%)',
@@ -452,7 +457,7 @@ export class Ui {
     wrap.appendChild(backBtn);
     wrap.appendChild(labelEl);
     wrap.appendChild(nextBtn);
-    document.body.appendChild(wrap);
+    this._frame.appendChild(wrap);
 
     this._replayEl    = wrap;
     this._replayBack  = backBtn;
