@@ -4,7 +4,7 @@
  *
  * Outcome → pool mapping (selection happens in ReelEngine via seeded RNG):
  *   bomb        → BOMB_VIDEO_URLS   (5 clips, uniform)
- *   safe        → SAFE_VIDEO_URLS   (15 clips, uniform)
+ *   safe        → SAFE_VIDEO_URLS   (23 clips, uniform)
  *   viral_boost → BUFF_VIDEO_URLS   (4 clips, uniform)
  */
 
@@ -34,6 +34,14 @@ export const SAFE_VIDEO_URLS = [
   CDN + 'safe_14.mp4',
   CDN + 'safe_15.mp4',
   CDN + 'safe_16.mp4',
+  CDN + 'safe_17.mp4',
+  CDN + 'safe_18.mp4',
+  CDN + 'safe_19.mp4',
+  CDN + 'safe_20.mp4',
+  CDN + 'safe_21.mp4',
+  CDN + 'safe_22.mp4',
+  CDN + 'safe_23.mp4',
+  CDN + 'safe_24.mp4',
 ] as const;
 
 export const BUFF_VIDEO_URLS = [
