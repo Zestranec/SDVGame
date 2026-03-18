@@ -301,17 +301,48 @@ export class Game {
     );
   }
 
+  /** Extract the per-step multiplier from runner response fields (no local computation). */
+  private _replayMultiplier(resp: GameResp): number {
+    if (resp.applied_mult_display != null) {
+      const n = parseFloat(resp.applied_mult_display);
+      if (!isNaN(n)) return n;
+    }
+    if (resp.applied_mult_bp != null) return resp.applied_mult_bp / 10000;
+    return 1.0;
+  }
+
   private async playReplayStep(): Promise<void> {
     if (this.replayIndex >= this.replaySteps.length) return;
-    const step = this.replaySteps[this.replayIndex];
+    const step    = this.replaySteps[this.replayIndex];
+    const balance = toBigInt(step.balance);
+    const accCents = BigInt(step.resp.acc_cents);
+
+    // Hide any previous popup (e.g. navigating back from final step)
+    this.ui.hidePopup();
+
     const card = this.buildCardFromResp(step.resp);
     this.renderer.primeCard(card);
     await this.renderer.transitionTo(card);
-    const accCents = BigInt(step.resp.acc_cents);
+
     this.economy.setRoundValueFromBackend(accCents, step.resp.step);
-    this.ui.setBalance(toBigInt(step.balance));
-    this.ui.setRoundValue(this.economy.roundValue, this.computeMultiplier());
+    this.ui.setBalance(balance);
+    this.ui.setRoundValue(this.economy.roundValue, this._replayMultiplier(step.resp));
+    this.ui.showBottomBar({ roundValue: true, cashout: false, swipeHint: false });
     this.ui.updateReplayControls(this.replayIndex, this.replaySteps.length);
+
+    // Final step: show outcome popup after the card animation settles
+    if (step.final) {
+      const resp = step.resp;
+      setTimeout(() => {
+        if (resp.outcome === 'bomb') {
+          this.ui.showPopupLose(balance, 0n);
+        } else if (resp.max_reached || resp.ended_by === 'maxwin') {
+          this.ui.showPopupMaxWin(accCents, balance);
+        } else {
+          this.ui.showPopupWin(accCents, balance);
+        }
+      }, 650);
+    }
   }
 
   private async replayNext(): Promise<void> {
@@ -720,6 +751,10 @@ export class Game {
   // ── Popup button ───────────────────────────────────────────────────────────
 
   private handlePopupButton(): void {
+    if (this.replayMode) {
+      this.ui.hidePopup();
+      return;
+    }
     if (this._pendingFreebetsOver && this._freebetsOverData) {
       const { totalWin, rounds } = this._freebetsOverData;
       this._pendingFreebetsOver = false;
