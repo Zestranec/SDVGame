@@ -412,16 +412,19 @@ export class Game {
     switch (next) {
       case 'loading':
         this.swipe.setLocked(true);
+        this.ui.setTopRightButtonsVisible(false);
         break;
 
       case 'quick_rules':
         this.swipe.setLocked(true);
+        this.ui.setTopRightButtonsVisible(false);
         this.renderer.showCard(INTRO_CARD);
         this.ui.showQuickRules(() => this.setState('intro'));
         break;
 
       case 'intro': {
         this.swipe.setLocked(false);
+        this.ui.setTopRightButtonsVisible(true);
         this.ui.hidePopup();
         this.ui.hideQuickRules();
         this.renderer.showCard(INTRO_CARD, {

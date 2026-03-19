@@ -33,8 +33,9 @@ export class Ui {
   private popupBalance  = document.getElementById('popup-balance')!;
   private popupBtn      = document.getElementById('popup-btn')! as HTMLButtonElement;
 
-  readonly seedInput = document.getElementById('seed-input')! as HTMLInputElement;
-  readonly soundBtn  = document.getElementById('btn-sound')! as HTMLElement;
+  readonly seedInput   = document.getElementById('seed-input')! as HTMLInputElement;
+  readonly soundBtn    = document.getElementById('btn-sound')! as HTMLElement;
+  private  rightIcons  = document.getElementById('right-icons')! as HTMLElement;
 
   // Currency config — set once at game init via setCurrencyConfig().
   // Defaults are neutral placeholders; overwritten before any display call.
@@ -79,6 +80,12 @@ export class Ui {
 
   private ccy(str: string): string {
     return this.currency.code ? `${str} ${this.currency.code}` : str;
+  }
+
+  // ── Top-right buttons (rules + sound) ────────────────────────────────────
+
+  setTopRightButtonsVisible(visible: boolean): void {
+    this.rightIcons.style.display = visible ? '' : 'none';
   }
 
   // ── Balance ──────────────────────────────────────────────────────────────
