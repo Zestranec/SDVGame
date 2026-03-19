@@ -546,7 +546,23 @@ export class Game {
     const betValue = betType === 'freebet' ? gameOptions.getFreebetBet() : bet;
 
     if (!this.economy.canAfford(bet)) {
-      this.ui.showError('Insufficient balance. Please top up.');
+      this.swipe.setLocked(true);
+      this.ui.showPopupInsufficientFunds({
+        balanceInt: this.economy.balance,
+        betInt:     bet,
+        onDeposit: () => {
+          const url = gameOptions.urls?.deposit_url;
+          if (url) {
+            window.open(url, '_blank', 'noopener,noreferrer');
+          } else {
+            this.ui.showError('Deposit link not available.');
+          }
+        },
+        onCancel: () => {
+          this.ui.hidePopupInsufficientFunds();
+          this.swipe.setLocked(false);
+        },
+      });
       return;
     }
 

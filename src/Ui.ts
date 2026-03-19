@@ -239,7 +239,7 @@ export class Ui {
   }
 
   /** Small bottom snackbar — auto-closes after 2.5 s, tap to close. */
-  showPopupFreebetsFinished(count: number, totalWin: bigint): void {
+  showPopupFreebetsFinished(_count: number, totalWin: bigint): void {
     const winStr = this.ccy(this.fmtWin(totalWin));
     this._showToast(
       'bottom',
@@ -436,6 +436,145 @@ export class Ui {
     setTimeout(() => {
       this.glitchEl.style.display = 'none';
     }, durationMs);
+  }
+
+  // ── Insufficient funds overlay ───────────────────────────────────────────
+
+  private _insuffEl:         HTMLElement | null = null;
+  private _insuffBalanceEl:  HTMLElement | null = null;
+  private _insuffBetEl:      HTMLElement | null = null;
+  private _insuffDepositBtn: HTMLButtonElement | null = null;
+  private _insuffCancelBtn:  HTMLButtonElement | null = null;
+
+  showPopupInsufficientFunds(opts: {
+    balanceInt: bigint;
+    betInt: bigint;
+    onDeposit: () => void;
+    onCancel: () => void;
+  }): void {
+    if (!this._insuffEl) {
+      // ── Dim backdrop (same as #popup) ───────────────────────────────────
+      const overlay = document.createElement('div');
+      Object.assign(overlay.style, {
+        position:        'absolute',
+        inset:           '0',
+        display:         'flex',
+        alignItems:      'flex-end',
+        justifyContent:  'center',
+        background:      'rgba(0,0,0,0.45)',
+        zIndex:          '9700',
+      });
+
+      // ── Bottom sheet (mirrors #popup-sheet) ─────────────────────────────
+      const sheet = document.createElement('div');
+      Object.assign(sheet.style, {
+        width:           'min(640px, 92vw)',
+        padding:         '12px 24px',
+        paddingBottom:   'max(28px, env(safe-area-inset-bottom))',
+        background:      'rgba(16,16,16,0.88)',
+        borderRadius:    '28px 28px 0 0',
+        backdropFilter:  'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
+        boxShadow:       '0 -4px 48px rgba(0,0,0,0.7)',
+        display:         'flex',
+        flexDirection:   'column',
+        alignItems:      'center',
+      });
+
+      // handle
+      const handle = document.createElement('div');
+      Object.assign(handle.style, {
+        width: '36px', height: '4px',
+        background: 'rgba(255,255,255,0.25)',
+        borderRadius: '2px', marginBottom: '22px',
+      });
+
+      // title
+      const titleEl = document.createElement('div');
+      Object.assign(titleEl.style, {
+        fontSize: '24px', fontWeight: '900',
+        color: '#fff', letterSpacing: '0.5px',
+        textAlign: 'center', marginBottom: '8px',
+      });
+      titleEl.textContent = 'INSUFFICIENT FUNDS';
+
+      // subtitle
+      const subtitleEl = document.createElement('div');
+      Object.assign(subtitleEl.style, {
+        fontSize: '14px', color: 'rgba(255,255,255,0.62)',
+        textAlign: 'center', lineHeight: '1.55', marginBottom: '4px',
+      });
+      subtitleEl.textContent = 'Your balance is too low for this bet.';
+
+      // balance + bet info
+      const infoEl = document.createElement('div');
+      Object.assign(infoEl.style, {
+        fontSize: '13px', color: 'rgba(255,255,255,0.35)',
+        textAlign: 'center', marginBottom: '22px', lineHeight: '1.7',
+      });
+
+      const balanceLine = document.createElement('div');
+      const betLine     = document.createElement('div');
+      infoEl.appendChild(balanceLine);
+      infoEl.appendChild(betLine);
+
+      // TOP UP button
+      const depositBtn = document.createElement('button');
+      Object.assign(depositBtn.style, {
+        width: '100%', height: '56px',
+        borderRadius: '14px', border: 'none',
+        background: 'linear-gradient(135deg, #4d7aff, #2d55d4)',
+        color: '#fff', fontSize: '16px', fontWeight: '800',
+        letterSpacing: '0.5px', cursor: 'pointer',
+        marginBottom: '10px',
+      });
+      depositBtn.textContent = 'TOP UP';
+
+      // CANCEL button
+      const cancelBtn = document.createElement('button');
+      Object.assign(cancelBtn.style, {
+        width: '100%', height: '48px',
+        borderRadius: '14px',
+        border: '1px solid rgba(255,255,255,0.18)',
+        background: 'rgba(255,255,255,0.06)',
+        color: 'rgba(255,255,255,0.70)', fontSize: '14px',
+        fontWeight: '700', letterSpacing: '0.5px', cursor: 'pointer',
+      });
+      cancelBtn.textContent = 'CANCEL';
+
+      sheet.appendChild(handle);
+      sheet.appendChild(titleEl);
+      sheet.appendChild(subtitleEl);
+      sheet.appendChild(infoEl);
+      sheet.appendChild(depositBtn);
+      sheet.appendChild(cancelBtn);
+      overlay.appendChild(sheet);
+      this._frame.appendChild(overlay);
+
+      this._insuffEl         = overlay;
+      this._insuffBalanceEl  = balanceLine;
+      this._insuffBetEl      = betLine;
+      this._insuffDepositBtn = depositBtn;
+      this._insuffCancelBtn  = cancelBtn;
+    }
+
+    // Update dynamic text
+    if (this._insuffBalanceEl) {
+      this._insuffBalanceEl.textContent = `Balance: ${this.ccy(this.fmtBalance(opts.balanceInt))}`;
+    }
+    if (this._insuffBetEl) {
+      this._insuffBetEl.textContent = `Bet: ${this.ccy(this.fmtBet(opts.betInt))}`;
+    }
+
+    // Wire callbacks via onclick — replaces on every call, no accumulation
+    if (this._insuffDepositBtn) this._insuffDepositBtn.onclick = opts.onDeposit;
+    if (this._insuffCancelBtn)  this._insuffCancelBtn.onclick  = opts.onCancel;
+
+    this._insuffEl.style.display = 'flex';
+  }
+
+  hidePopupInsufficientFunds(): void {
+    if (this._insuffEl) this._insuffEl.style.display = 'none';
   }
 
   // ── Rules overlay ────────────────────────────────────────────────────────
