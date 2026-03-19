@@ -109,9 +109,9 @@ export const INTRO_CARD: CardDef = {
   id:        'intro',
   type:      'intro',
   emoji:     '',
-  headline:  'POSITIVE DOOMSCROLLING',
-  subline:   "Cute critters = safe.\nAgent in the feed = busted.\nScroll responsibly.",
+  headline:  'Enter the Feed',
+  subline:   'Scroll responsibly.',
   colors:    ['#0d0d2b', '#1a1a4a'],
   animType:  'intro',
-  imagePath: 'assets/loading/Cat_rules.png',
+  imagePath: 'assets/intro/intro_bg.jpg',
 };

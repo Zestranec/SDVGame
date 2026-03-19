@@ -229,19 +229,24 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
   applyCover(bg, w, h);
   container.addChild(bg);
 
-  // 2. Gradient overlays ────────────────────────────────────────────────────────
-  // Top: opaque-at-top → transparent (HUD readability)
+  // 2. Dim overlay — improves text readability over busy bokeh background ───────
+  const dimLayer = new PIXI.Graphics();
+  dimLayer.beginFill(0x000000, 0.22);
+  dimLayer.drawRect(0, 0, w, h);
+  dimLayer.endFill();
+  container.addChild(dimLayer);
+
+  // 3. Gradient overlays ────────────────────────────────────────────────────────
   const topGrad = new PIXI.Graphics();
   drawGradBands(topGrad, w, h * 0.38, 0.55, 0);
   container.addChild(topGrad);
 
-  // Bottom: transparent → opaque-at-bottom (caption + CTA readability)
   const botGrad = new PIXI.Graphics();
   drawGradBands(botGrad, w, h * 0.52, 0, 0.78);
   botGrad.y = h - h * 0.52;
   container.addChild(botGrad);
 
-  // 3. Game title ("ADHDoom") — top-center, sits below the HTML HUD ─────────────
+  // 4. Game title ("ADHDoom") — top-center, sits below the HTML HUD ─────────────
   const gameTitleFS = Math.round(Math.min(w * 0.10, 44));
   const gameTitle = new PIXI.Text(tr('introTitle'), new PIXI.TextStyle({
     fontFamily:         TEXT_FONT,
@@ -257,14 +262,72 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
   }));
   gameTitle.anchor.set(0.5);
   gameTitle.x = w / 2;
-  gameTitle.y = 90; // fixed: clears HTML HUD (≈60px) + notch safe area
+  gameTitle.y = 82;
   container.addChild(gameTitle);
 
-  // 4. Caption panel (centered) ─────────────────────────────────────────────────
-  const panelW = Math.min(520, Math.round(w * 0.86));
-  const PAD    = 20; // inner padding (px)
+  // 5. Live-counter glass pills ─────────────────────────────────────────────────
+  const PILL_H   = 34;
+  const PILL_FS  = Math.round(Math.min(w * 0.034, 13));
+  const DOT_R    = 5;
+  const PILL_PAD = 14;
+  const DOT_GAP  = 7;
 
-  // Title row: bold, centered
+  const pillTextStyle = new PIXI.TextStyle({
+    fontFamily:         TEXT_FONT,
+    fontWeight:         '600',
+    fontSize:           PILL_FS,
+    fill:               0xffffff,
+    dropShadow:         true,
+    dropShadowColor:    0x000000,
+    dropShadowBlur:     3,
+    dropShadowDistance: 0,
+  });
+
+  // Pill 1: live viewer counter with red pulse dot
+  const COUNTER_BASE = 12438;
+  const pill1Cont  = new PIXI.Container();
+  const pill1Label = new PIXI.Text(`🔥 ${COUNTER_BASE.toLocaleString()} doomscrolling now`, pillTextStyle);
+  pill1Label.anchor.set(0, 0.5);
+  const pill1W = PILL_PAD + DOT_R * 2 + DOT_GAP + Math.ceil(pill1Label.width) + PILL_PAD;
+  const pill1Bg = new PIXI.Graphics();
+  pill1Bg.lineStyle(1, 0xffffff, 0.18);
+  pill1Bg.beginFill(0x000000, 0.52);
+  pill1Bg.drawRoundedRect(0, 0, pill1W, PILL_H, PILL_H / 2);
+  pill1Bg.endFill();
+  const pulseDot = new PIXI.Graphics();
+  pulseDot.beginFill(0xff3333);
+  pulseDot.drawCircle(0, 0, DOT_R);
+  pulseDot.endFill();
+  pulseDot.x = PILL_PAD + DOT_R;
+  pulseDot.y = PILL_H / 2;
+  pill1Label.x = PILL_PAD + DOT_R * 2 + DOT_GAP;
+  pill1Label.y = PILL_H / 2;
+  pill1Cont.addChild(pill1Bg, pulseDot, pill1Label);
+  pill1Cont.x = (w - pill1W) / 2;
+  pill1Cont.y = gameTitle.y + Math.ceil(gameTitle.height / 2) + 16;
+  container.addChild(pill1Cont);
+
+  // Pill 2: agent warning
+  const pill2Cont  = new PIXI.Container();
+  const pill2Label = new PIXI.Text('⚠️ Agents detected in your region', pillTextStyle);
+  pill2Label.anchor.set(0.5);
+  const pill2W = Math.ceil(pill2Label.width) + PILL_PAD * 2;
+  const pill2Bg = new PIXI.Graphics();
+  pill2Bg.lineStyle(1, 0xffffff, 0.18);
+  pill2Bg.beginFill(0x000000, 0.52);
+  pill2Bg.drawRoundedRect(0, 0, pill2W, PILL_H, PILL_H / 2);
+  pill2Bg.endFill();
+  pill2Label.x = pill2W / 2;
+  pill2Label.y = PILL_H / 2;
+  pill2Cont.addChild(pill2Bg, pill2Label);
+  pill2Cont.x = (w - pill2W) / 2;
+  pill2Cont.y = pill1Cont.y + PILL_H + 8;
+  container.addChild(pill2Cont);
+
+  // 6. Caption panel ────────────────────────────────────────────────────────────
+  const panelW = Math.min(520, Math.round(w * 0.86));
+  const PAD    = 20;
+
   const titleFS = Math.round(Math.min(w * 0.066, 26));
   const titleText = new PIXI.Text(def.headline, new PIXI.TextStyle({
     fontFamily:         TEXT_FONT,
@@ -282,7 +345,6 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
   titleText.x = panelW / 2;
   titleText.y = PAD;
 
-  // Body rows: regular weight, word-wrapped, centered
   const bodyFS = Math.round(Math.min(w * 0.058, 22));
   const bodyText = new PIXI.Text(def.subline, new PIXI.TextStyle({
     fontFamily:         TEXT_FONT,
@@ -333,7 +395,7 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
   winHighlight.y = captionCont.y - Math.ceil(winHighlight.height) - 10;
   container.addChild(winHighlight);
 
-  // 4. Swipe CTA ────────────────────────────────────────────────────────────────
+  // 7. Swipe CTA ────────────────────────────────────────────────────────────────
   const ctaLayer = new PIXI.Container();
   container.addChild(ctaLayer);
 
@@ -354,7 +416,6 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
   ctaLabel.y = betOpts ? h - 92 : h - 36;
   ctaLayer.addChild(ctaLabel);
 
-  // Two staggered chevrons that float upward and fade in a loop
   const CHEV_SZ = 11;
   const chev1 = makeChevronGraphic(CHEV_SZ);
   chev1.x = w / 2;
@@ -366,7 +427,7 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
   chev2.y = betOpts ? h - 130 : h - 86;
   ctaLayer.addChild(chev2);
 
-  // 5. Bet selector (below CTA) ─────────────────────────────────────────────────
+  // 8. Bet selector ─────────────────────────────────────────────────────────────
   const BTN_SIZE = 40;
   const SEL_W    = Math.min(Math.round(w * 0.64), 250);
   let betCont: PIXI.Container | null = null;
@@ -404,7 +465,6 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
     };
     refreshLabel();
 
-    // Minus button — step index down
     const minusCont = new PIXI.Container();
     minusCont.eventMode = 'static';
     minusCont.cursor = 'pointer';
@@ -426,7 +486,6 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
     });
     betCont.addChild(minusCont);
 
-    // Plus button — step index up
     const plusCont = new PIXI.Container();
     plusCont.eventMode = 'static';
     plusCont.cursor = 'pointer';
@@ -453,7 +512,7 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
     ctaLayer.addChild(betCont);
   }
 
-  // 6. Required CardObjects stubs ───────────────────────────────────────────────
+  // 9. Required CardObjects stubs ───────────────────────────────────────────────
   const animLayer = new PIXI.Container();
   container.addChild(animLayer);
 
@@ -461,7 +520,7 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
   dummy.visible = false;
   container.addChild(dummy);
 
-  // 7. Resize listener ──────────────────────────────────────────────────────────
+  // 10. Resize listener ─────────────────────────────────────────────────────────
   let chev1BaseY = betOpts ? h - 108 : h - 64;
   let chev2BaseY = betOpts ? h - 130 : h - 86;
   const onResize = () => {
@@ -471,10 +530,16 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
     bg.x = nw / 2;
     bg.y = nh / 2;
     applyCover(bg, nw, nh);
+    dimLayer.clear();
+    dimLayer.beginFill(0x000000, 0.22);
+    dimLayer.drawRect(0, 0, nw, nh);
+    dimLayer.endFill();
     drawGradBands(topGrad, nw, nh * 0.38, 0.55, 0);
     drawGradBands(botGrad, nw, nh * 0.52, 0, 0.78);
     botGrad.y = nh - nh * 0.52;
     gameTitle.x = nw / 2;
+    pill1Cont.x = (nw - pill1W) / 2;
+    pill2Cont.x = (nw - pill2W) / 2;
     ctaLabel.x = nw / 2;
     ctaLabel.y = betOpts ? nh - 92 : nh - 36;
     chev1.x = nw / 2;
@@ -492,11 +557,13 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
   };
   window.addEventListener('resize', onResize);
 
-  // 8. Custom animation: chevrons float up/fade (staggered), label pulses ───────
+  // 11. Animation: chevrons float up/fade, CTA pulses, dot throbs, counter ticks ─
   let animT = 0;
-  const PERIOD = 1.6; // seconds per chevron cycle
+  const PERIOD = 1.6;
+  let lastCounterVal = COUNTER_BASE;
   const animFn: AnimFn = (dt) => {
     animT += dt * 0.016;
+
     const p1 = (animT / PERIOD) % 1;
     chev1.y     = chev1BaseY - p1 * 24;
     chev1.alpha = p1 < 0.5 ? p1 * 2 : (1 - p1) * 2;
@@ -505,7 +572,15 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
     chev2.y     = chev2BaseY - p2 * 24;
     chev2.alpha = p2 < 0.5 ? p2 * 2 : (1 - p2) * 2;
 
-    ctaLabel.alpha = 0.65 + Math.sin(animT * 2.2) * 0.35;
+    ctaLabel.alpha  = 0.65 + Math.sin(animT * 2.2) * 0.35;
+    pulseDot.alpha  = 0.6  + Math.sin(animT * 3.5) * 0.4;
+
+    // Counter: deterministic oscillation — updates text only when value changes
+    const newVal = COUNTER_BASE + Math.round(Math.sin(animT * 0.31) * 23);
+    if (newVal !== lastCounterVal) {
+      lastCounterVal = newVal;
+      pill1Label.text = `🔥 ${newVal.toLocaleString()} doomscrolling now`;
+    }
   };
 
   return {

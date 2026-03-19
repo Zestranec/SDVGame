@@ -16,8 +16,8 @@ const LOGO_URL = new URL(
 ).toString();
 
 /** Exported so Renderer can pre-warm PIXI.Texture.from() with the same URL key. */
-export const CAT_RULES_URL = new URL(
-  `${import.meta.env.BASE_URL}assets/loading/Cat_rules.png`,
+export const INTRO_BG_URL = new URL(
+  `${import.meta.env.BASE_URL}assets/intro/intro_bg.jpg`,
   window.location.href,
 ).toString();
 
@@ -71,8 +71,8 @@ export class LoadingScene {
   async loadAssets(): Promise<void> {
     const [logoResult] = await Promise.allSettled([
       PIXI.Assets.load<PIXI.Texture>(LOGO_URL),
-      // Pre-cache Cat_rules so buildTextCard can use PIXI.Texture.from() synchronously
-      PIXI.Assets.load<PIXI.Texture>(CAT_RULES_URL),
+      // Pre-cache intro_bg so buildIntroCard can use PIXI.Texture.from() synchronously
+      PIXI.Assets.load<PIXI.Texture>(INTRO_BG_URL),
     ]);
 
     if (logoResult.status === 'fulfilled') {
