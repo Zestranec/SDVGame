@@ -7,6 +7,7 @@ import { LoadingScene, LOADING_MIN_MS } from './LoadingScene';
 import { contentUrl, allSafeUrls } from './contentPool';
 import { gameOptions } from './GameOptions';
 import { t, setLocale, getRulesText } from './i18n/i18n';
+import { AudioController } from './AudioController';
 import { formatAmount } from './moneyFormat';
 import {
   RunnerClient,
@@ -99,6 +100,8 @@ export class Game {
   private swipe: SwipeInput;
   private muted = false;
   private _rulesOpen = false;
+  private audio = new AudioController();
+  private _postBombSilence = false;
 
   /** Info polling handle — refreshes balance/freebets from runner every ~8 s. */
   private infoTimer: ReturnType<typeof setInterval> | null = null;
@@ -141,6 +144,8 @@ export class Game {
     this.ui.soundBtn.addEventListener('click', () => {
       this.muted = !this.muted;
       this.ui.soundBtn.textContent = this.muted ? t('soundMuted') : t('soundUnmuted');
+      this.audio.unlock();
+      this.audio.setEnabled(!this.muted);
     });
 
     (document.getElementById('btn-help') as HTMLElement)
@@ -420,6 +425,7 @@ export class Game {
         this.ui.setTopRightButtonsVisible(false);
         this.renderer.showCard(INTRO_CARD);
         this.ui.showQuickRules(() => this.setState('intro'));
+        if (!this._postBombSilence) this.audio.playLobby();
         break;
 
       case 'intro': {
@@ -427,6 +433,7 @@ export class Game {
         this.ui.setTopRightButtonsVisible(true);
         this.ui.hidePopup();
         this.ui.hideQuickRules();
+        if (!this._postBombSilence) this.audio.playLobby();
         this.renderer.showCard(INTRO_CARD, {
           betOpts: {
             bets:        gameOptions.availableBets,
@@ -457,6 +464,7 @@ export class Game {
 
       case 'running':
         this.swipe.setLocked(false);
+        this.audio.playSafe();
         this.ui.setRoundValue(this.economy.roundValue, this.computeMultiplier());
         this.ui.setBalance(this.economy.balance);
         this.ui.showBottomBar({
@@ -518,6 +526,7 @@ export class Game {
     // Unlock autoplay NOW, synchronously inside the gesture handler,
     // before any await — keeps iOS video.play() in gesture context.
     this.renderer.unlockAutoplay();
+    this.audio.unlock();
 
     if (this.state === 'intro') {
       this.busy = true;
@@ -746,6 +755,8 @@ export class Game {
   // ── Bomb ───────────────────────────────────────────────────────────────────
 
   private async triggerBomb(newBalance: bigint): Promise<void> {
+    this._postBombSilence = true;
+    this.audio.playBombOnceThenSilence();
     this.setState('lose');
 
     this.renderer.shake(22, 32);
@@ -779,6 +790,7 @@ export class Game {
       this.ui.showPopupFreebetsOver(totalWin, rounds, this.economy.balance);
       return; // swipe stays locked; next click will setState('intro')
     }
+    this._postBombSilence = false;
     this.setState('intro');
   }
 
