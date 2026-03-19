@@ -4,7 +4,7 @@
  */
 const RU = {
   // ── HUD ──────────────────────────────────────────────────────────────────
-  cashoutBtn:        '💰 Зафиксировать (+{amount})',
+  cashoutBtn:        '💰 Забрать (+{amount})',
   hudRoundEmpty:     '—',
   multiplier:        '×{value}',
   soundMuted:        '🔇',
@@ -30,7 +30,7 @@ const RU = {
   // ── Popup: max win ───────────────────────────────────────────────────────
   popupMaxWinTitle:    'МАКСИМУМ!',
   popupMaxWinSubtitle: 'Достигнут лимит ×500. Забери выигрыш!',
-  popupMaxWinBtn:      'ЗАБРАТЬ МАКСИМУМ',
+  popupMaxWinBtn:      'ЗАБРАТЬ ВЫИГРЫШ',
 
   // ── Popup: lose ──────────────────────────────────────────────────────────
   popupLoseTitle:     'ПОПАЛСЯ',
@@ -41,7 +41,7 @@ const RU = {
 
   // ── Popup: broke ─────────────────────────────────────────────────────────
   popupBrokeTitle:    'БАНКРОТ!',
-  popupBrokeSubtitle: 'Средства закончились. Баланс восстановлен.',
+  popupBrokeSubtitle: 'Средства закончились. Пополни баланс.',
   popupBrokeBtn:      'ПОПОЛНИТЬ И ИГРАТЬ',
 
   // ── Popup: free plays over ───────────────────────────────────────────────
@@ -53,7 +53,7 @@ const RU = {
 
   // ── Popup: insufficient funds ────────────────────────────────────────────
   popupInsufficientTitle:      'НЕДОСТАТОЧНО СРЕДСТВ',
-  popupInsufficientSubtitle:   'Баланса не хватает для этой ставки.',
+  popupInsufficientSubtitle:   'Баланса не хватает для ставки.',
   popupInsufficientBalance:    'Баланс: {balance}',
   popupInsufficientBet:        'Ставка: {bet}',
   popupInsufficientDepositBtn: 'ПОПОЛНИТЬ',
@@ -66,7 +66,7 @@ const RU = {
 
   // ── Freebets counter ─────────────────────────────────────────────────────
   fbCounterLabel:    '🎁 ФРИСПИНЫ',
-  fbCounterTotalWin: 'ИТОГО ВЫИГРЫШ',
+  fbCounterTotalWin: 'ИТОГО',
   fbCounterProgress: '{done} / {issued}',
 
   // ── Freebets toasts ──────────────────────────────────────────────────────
