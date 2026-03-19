@@ -21,7 +21,7 @@ import {
   showFatalError,
 } from './runnerClient';
 
-export type GameState = 'loading' | 'intro' | 'running' | 'transitioning' | 'win' | 'lose';
+export type GameState = 'loading' | 'quick_rules' | 'intro' | 'running' | 'transitioning' | 'win' | 'lose';
 
 /**
  * Pointer / wheel swipe input handler.
@@ -401,7 +401,7 @@ export class Game {
     this.ui.setBalance(this.economy.balance);
     this.ui.setCurrentBet(gameOptions.selectedBet);
     this.startInfoPolling();
-    this.setState('intro');
+    this.setState('quick_rules');
   }
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -414,9 +414,16 @@ export class Game {
         this.swipe.setLocked(true);
         break;
 
+      case 'quick_rules':
+        this.swipe.setLocked(true);
+        this.renderer.showCard(INTRO_CARD);
+        this.ui.showQuickRules(() => this.setState('intro'));
+        break;
+
       case 'intro': {
         this.swipe.setLocked(false);
         this.ui.hidePopup();
+        this.ui.hideQuickRules();
         this.renderer.showCard(INTRO_CARD, {
           betOpts: {
             bets:        gameOptions.availableBets,
@@ -788,6 +795,7 @@ export class Game {
     // Keep locked if a popup is visible (win/lose/freebets-over) or state is transitioning.
     const popupVisible = !(document.getElementById('popup')?.classList.contains('hidden') ?? true);
     const stateWantsLock = this.state === 'loading'
+      || this.state === 'quick_rules'
       || this.state === 'transitioning'
       || this.state === 'win'
       || this.state === 'lose';

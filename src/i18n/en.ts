@@ -94,8 +94,19 @@ export const EN = {
   errorCashoutFailed:   'Cashout failed — please retry',
   errorInvalidCashout:  'Invalid runner response on cashout.',
 
+  // ── Quick Rules screen ───────────────────────────────────────────────────
+  quickRulesTitle: 'QUICK RULES',
+  quickRulesBtn:   'CLICK TO CONTINUE',
+
   // ── Animation flavor text ────────────────────────────────────────────────
   dogMessages: ['snack?', 'snack!', 'walk?', 'treat?', 'ball?'],
+  quickRulesBullets: [
+    'Swipe to reveal the next clip.',
+    'Safe clips grow your pot.',
+    'Viral Boost is rare — huge multiplier.',
+    'Agent ends the round instantly.',
+    'Cash Out anytime — Win up to ×500.',
+  ],
 } as const;
 
 export default EN;

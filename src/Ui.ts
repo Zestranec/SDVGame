@@ -12,7 +12,7 @@ import {
   countRequiredDecimals,
   devAssertNoRounding,
 } from './moneyFormat';
-import { t } from './i18n/i18n';
+import { t, getLocale } from './i18n/i18n';
 
 export class Ui {
   private balanceEl    = document.getElementById('balance-display')!;
@@ -739,6 +739,142 @@ export class Ui {
 
   hideRules(): void {
     if (this._rulesEl) this._rulesEl.style.display = 'none';
+  }
+
+  // ── Quick Rules screen ────────────────────────────────────────────────────
+
+  private _quickRulesEl: HTMLElement | null = null;
+
+  showQuickRules(onContinue: () => void): void {
+    this.hideQuickRules();
+
+    // Full-screen dim backdrop — PIXI canvas (bokeh bg) shows through the tint
+    const overlay = document.createElement('div');
+    Object.assign(overlay.style, {
+      position:       'absolute',
+      inset:          '0',
+      display:        'flex',
+      alignItems:     'center',
+      justifyContent: 'center',
+      padding:        'max(24px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left))',
+      background:     'rgba(0,0,0,0.65)',
+      zIndex:         '9700',
+      boxSizing:      'border-box',
+    });
+
+    // Glass panel
+    const panel = document.createElement('div');
+    Object.assign(panel.style, {
+      display:              'flex',
+      flexDirection:        'column',
+      gap:                  '20px',
+      width:                'min(400px, 100%)',
+      background:           'rgba(8,0,20,0.88)',
+      backdropFilter:       'blur(18px)',
+      WebkitBackdropFilter: 'blur(18px)',
+      border:               '1px solid rgba(255,255,255,0.12)',
+      borderRadius:         '22px',
+      boxShadow:            '0 8px 48px rgba(0,0,0,0.9)',
+      padding:              '28px 24px 24px',
+      boxSizing:            'border-box',
+    });
+
+    // Title
+    const title = document.createElement('div');
+    Object.assign(title.style, {
+      fontSize:      '14px',
+      fontWeight:    '900',
+      letterSpacing: '3px',
+      textTransform: 'uppercase',
+      color:         '#fff',
+      textAlign:     'center',
+    });
+    title.textContent = t('quickRulesTitle');
+    panel.appendChild(title);
+
+    // Divider
+    const divider = document.createElement('div');
+    Object.assign(divider.style, {
+      height:     '1px',
+      background: 'rgba(255,255,255,0.10)',
+    });
+    panel.appendChild(divider);
+
+    // Bullet list
+    const bulletList = document.createElement('div');
+    Object.assign(bulletList.style, {
+      display:       'flex',
+      flexDirection: 'column',
+      gap:           '12px',
+    });
+    for (const bullet of getLocale().quickRulesBullets) {
+      const row = document.createElement('div');
+      Object.assign(row.style, { display: 'flex', gap: '10px', alignItems: 'flex-start' });
+
+      const dot = document.createElement('span');
+      dot.textContent = '•';
+      Object.assign(dot.style, {
+        color:      'rgba(160,120,255,0.9)',
+        fontWeight: '700',
+        flexShrink: '0',
+        fontSize:   '16px',
+        lineHeight: '1.5',
+      });
+
+      const text = document.createElement('span');
+      text.textContent = bullet;
+      Object.assign(text.style, {
+        color:      'rgba(255,255,255,0.88)',
+        fontSize:   '14px',
+        lineHeight: '1.5',
+        fontWeight: '500',
+      });
+
+      row.appendChild(dot);
+      row.appendChild(text);
+      bulletList.appendChild(row);
+    }
+    panel.appendChild(bulletList);
+
+    // Divider
+    const divider2 = document.createElement('div');
+    Object.assign(divider2.style, {
+      height:     '1px',
+      background: 'rgba(255,255,255,0.10)',
+    });
+    panel.appendChild(divider2);
+
+    // Continue button
+    const btn = document.createElement('button');
+    Object.assign(btn.style, {
+      display:       'block',
+      width:         '100%',
+      padding:       '15px',
+      background:    'linear-gradient(135deg, rgba(130,60,255,0.95), rgba(80,40,200,0.95))',
+      border:        '1px solid rgba(255,255,255,0.25)',
+      borderRadius:  '14px',
+      color:         '#fff',
+      fontSize:      '14px',
+      fontWeight:    '900',
+      letterSpacing: '2px',
+      textTransform: 'uppercase',
+      cursor:        'pointer',
+      boxShadow:     '0 4px 24px rgba(100,40,200,0.5)',
+    });
+    btn.textContent = t('quickRulesBtn');
+    btn.onclick = onContinue;
+    panel.appendChild(btn);
+
+    overlay.appendChild(panel);
+    this._frame.appendChild(overlay);
+    this._quickRulesEl = overlay;
+  }
+
+  hideQuickRules(): void {
+    if (this._quickRulesEl) {
+      this._quickRulesEl.remove();
+      this._quickRulesEl = null;
+    }
   }
 
   // ── Replay controls ───────────────────────────────────────────────────────
