@@ -438,6 +438,171 @@ export class Ui {
     }, durationMs);
   }
 
+  // ── Rules overlay ────────────────────────────────────────────────────────
+
+  private _rulesEl: HTMLElement | null = null;
+
+  /**
+   * Show the full-screen rules overlay.
+   * The rules text is split into sections at double newlines; the first line
+   * of each section is rendered as a bold header.
+   * onClose is called when the user taps X or CLOSE.
+   */
+  showRules(text: string, onClose: () => void): void {
+    if (this._rulesEl) {
+      this._rulesEl.style.display = 'flex';
+      return;
+    }
+
+    // ── Dim backdrop ──────────────────────────────────────────────────────
+    const overlay = document.createElement('div');
+    Object.assign(overlay.style, {
+      position:        'absolute',
+      inset:           '0',
+      display:         'flex',
+      alignItems:      'flex-start',
+      justifyContent:  'center',
+      paddingTop:      'max(32px, env(safe-area-inset-top))',
+      paddingBottom:   'max(24px, env(safe-area-inset-bottom))',
+      background:      'rgba(0,0,0,0.72)',
+      zIndex:          '9800',
+      boxSizing:       'border-box',
+    });
+
+    // ── Glass panel ───────────────────────────────────────────────────────
+    const panel = document.createElement('div');
+    Object.assign(panel.style, {
+      display:          'flex',
+      flexDirection:    'column',
+      width:            'min(420px, 92%)',
+      maxHeight:        '85%',
+      background:       'rgba(8,0,20,0.82)',
+      backdropFilter:   'blur(14px)',
+      WebkitBackdropFilter: 'blur(14px)',
+      border:           '1px solid rgba(255,255,255,0.12)',
+      borderRadius:     '20px',
+      overflow:         'hidden',
+      boxShadow:        '0 8px 48px rgba(0,0,0,0.85)',
+    });
+
+    // ── Header ────────────────────────────────────────────────────────────
+    const header = document.createElement('div');
+    Object.assign(header.style, {
+      display:        'flex',
+      alignItems:     'center',
+      justifyContent: 'space-between',
+      padding:        '16px 20px 14px',
+      borderBottom:   '1px solid rgba(255,255,255,0.08)',
+      flexShrink:     '0',
+    });
+
+    const title = document.createElement('span');
+    Object.assign(title.style, {
+      fontSize:      '13px',
+      fontWeight:    '800',
+      letterSpacing: '2px',
+      textTransform: 'uppercase',
+      color:         'rgba(255,255,255,0.90)',
+    });
+    title.textContent = 'GAME RULES';
+
+    const closeX = document.createElement('button');
+    Object.assign(closeX.style, {
+      background:   'rgba(255,255,255,0.08)',
+      border:       '1px solid rgba(255,255,255,0.15)',
+      borderRadius: '50%',
+      width:        '30px',
+      height:       '30px',
+      color:        'rgba(255,255,255,0.75)',
+      fontSize:     '16px',
+      cursor:       'pointer',
+      lineHeight:   '1',
+      padding:      '0',
+      flexShrink:   '0',
+    });
+    closeX.textContent = '✕';
+    closeX.addEventListener('click', onClose);
+
+    header.appendChild(title);
+    header.appendChild(closeX);
+
+    // ── Scrollable body ───────────────────────────────────────────────────
+    const body = document.createElement('div');
+    Object.assign(body.style, {
+      flex:        '1',
+      overflowY:   'auto',
+      padding:     '18px 20px',
+      color:       'rgba(255,255,255,0.80)',
+      fontSize:    '13px',
+      lineHeight:  '1.65',
+    });
+
+    // Render sections: double-newline separates sections; first line = header
+    const sections = text.split('\n\n');
+    for (const section of sections) {
+      const lines = section.split('\n');
+      const sectionEl = document.createElement('div');
+      Object.assign(sectionEl.style, { marginBottom: '18px' });
+
+      const sectionHeader = document.createElement('div');
+      Object.assign(sectionHeader.style, {
+        fontSize:      '11px',
+        fontWeight:    '800',
+        letterSpacing: '1.4px',
+        textTransform: 'uppercase',
+        color:         'rgba(160,120,255,0.95)',
+        marginBottom:  '6px',
+      });
+      sectionHeader.textContent = lines[0];
+
+      const sectionBody = document.createElement('div');
+      Object.assign(sectionBody.style, { whiteSpace: 'pre-wrap' });
+      sectionBody.textContent = lines.slice(1).join('\n');
+
+      sectionEl.appendChild(sectionHeader);
+      sectionEl.appendChild(sectionBody);
+      body.appendChild(sectionEl);
+    }
+
+    // ── Footer close button ───────────────────────────────────────────────
+    const footer = document.createElement('div');
+    Object.assign(footer.style, {
+      padding:      '12px 20px 16px',
+      borderTop:    '1px solid rgba(255,255,255,0.07)',
+      flexShrink:   '0',
+    });
+
+    const closeBtn = document.createElement('button');
+    Object.assign(closeBtn.style, {
+      display:       'block',
+      width:         '100%',
+      padding:       '12px',
+      background:    'rgba(255,255,255,0.08)',
+      border:        '1px solid rgba(255,255,255,0.18)',
+      borderRadius:  '12px',
+      color:         '#fff',
+      fontSize:      '13px',
+      fontWeight:    '800',
+      letterSpacing: '1.5px',
+      cursor:        'pointer',
+    });
+    closeBtn.textContent = 'CLOSE';
+    closeBtn.addEventListener('click', onClose);
+
+    footer.appendChild(closeBtn);
+
+    panel.appendChild(header);
+    panel.appendChild(body);
+    panel.appendChild(footer);
+    overlay.appendChild(panel);
+    this._frame.appendChild(overlay);
+    this._rulesEl = overlay;
+  }
+
+  hideRules(): void {
+    if (this._rulesEl) this._rulesEl.style.display = 'none';
+  }
+
   // ── Replay controls ───────────────────────────────────────────────────────
 
   private _replayEl:     HTMLElement | null = null;

@@ -6,6 +6,7 @@ import { INTRO_CARD, BOMB_CARD, VIRAL_BOOST_CARD, SAFE_CARD_BASE, type CardDef }
 import { LoadingScene, LOADING_MIN_MS } from './LoadingScene';
 import { contentUrl, allSafeUrls } from './contentPool';
 import { gameOptions } from './GameOptions';
+import { RULES_EN } from './content/rulesText';
 import { formatAmount } from './moneyFormat';
 import {
   RunnerClient,
@@ -100,7 +101,7 @@ export class Game {
   private ui: Ui;
   private swipe: SwipeInput;
   private muted = false;
-
+  private _rulesOpen = false;
 
   /** Info polling handle — refreshes balance/freebets from runner every ~8 s. */
   private infoTimer: ReturnType<typeof setInterval> | null = null;
@@ -147,6 +148,9 @@ export class Game {
       this.muted = !this.muted;
       this.ui.soundBtn.textContent = this.muted ? '🔇' : '🔊';
     });
+
+    (document.getElementById('btn-help') as HTMLElement)
+      ?.addEventListener('click', () => this._openRules());
 
     this.swipe = new SwipeInput(document.getElementById('game-frame') ?? document.body, () => this.handleSwipeUp());
 
@@ -754,6 +758,30 @@ export class Game {
       return; // swipe stays locked; next click will setState('intro')
     }
     this.setState('intro');
+  }
+
+  // ── Rules overlay ───────────────────────────────────────────────────────────
+
+  private _openRules(): void {
+    if (this._rulesOpen) return;
+    this._rulesOpen = true;
+    this.swipe.setLocked(true);
+    this.ui.showRules(RULES_EN, () => this._closeRules());
+  }
+
+  private _closeRules(): void {
+    this._rulesOpen = false;
+    this.ui.hideRules();
+    // Restore swipe lock to whatever the current state requires.
+    // Keep locked if a popup is visible (win/lose/freebets-over) or state is transitioning.
+    const popupVisible = !(document.getElementById('popup')?.classList.contains('hidden') ?? true);
+    const stateWantsLock = this.state === 'loading'
+      || this.state === 'transitioning'
+      || this.state === 'win'
+      || this.state === 'lose';
+    if (!stateWantsLock && !popupVisible) {
+      this.swipe.setLocked(false);
+    }
   }
 }
 
