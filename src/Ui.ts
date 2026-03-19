@@ -12,6 +12,7 @@ import {
   countRequiredDecimals,
   devAssertNoRounding,
 } from './moneyFormat';
+import { t } from './i18n/i18n';
 
 export class Ui {
   private balanceEl    = document.getElementById('balance-display')!;
@@ -97,12 +98,12 @@ export class Ui {
     const str = this.fmtWin(valueInt);
     this.roundValHud.textContent  = str;
     this.roundValBig.textContent  = str;
-    this.multiplierEl.textContent = `×${multiplier.toFixed(2)}`;
-    this.cashoutBtn.textContent   = `💰 Take Profit (+${str})`;
+    this.multiplierEl.textContent = t('multiplier', { value: multiplier.toFixed(2) });
+    this.cashoutBtn.textContent   = t('cashoutBtn', { amount: str });
   }
 
   clearRoundHud(): void {
-    this.roundValHud.textContent = '—';
+    this.roundValHud.textContent = t('hudRoundEmpty');
   }
 
   // ── Bottom bar visibility ─────────────────────────────────────────────────
@@ -129,13 +130,13 @@ export class Ui {
     devAssertNoRounding('popup-win', cashoutInt, this.currency,
       formatAmount(cashoutInt, this.currency, this.feDecimals, true));
 
-    this.popupTitle.textContent    = 'NICE!';
+    this.popupTitle.textContent    = t('popupWinTitle');
     this.popupAmount.textContent   = `+${this.ccy(win)}`;
     this.popupAmount.className     = 'win';
     this.popupAmount.style.display = 'block';
-    this.popupSubtitle.textContent = 'Safe feed. Keep scrolling!';
-    this.popupBalance.textContent  = `Balance: ${this.ccy(bal)}`;
-    this.popupBtn.textContent      = 'COLLECT';
+    this.popupSubtitle.textContent = t('popupWinSubtitle');
+    this.popupBalance.textContent  = t('popupWinBalance', { balance: this.ccy(bal) });
+    this.popupBtn.textContent      = t('popupWinBtn');
     this.popupBtn.className        = 'popup-btn success';
     this._showPopup();
   }
@@ -144,13 +145,13 @@ export class Ui {
     const win = this.fmtWin(cashoutInt);
     const bal = this.fmtBalance(balanceInt);
 
-    this.popupTitle.textContent    = 'MAX WIN!';
+    this.popupTitle.textContent    = t('popupMaxWinTitle');
     this.popupAmount.textContent   = `+${this.ccy(win)}`;
     this.popupAmount.className     = 'win';
     this.popupAmount.style.display = 'block';
-    this.popupSubtitle.textContent = 'You hit the ×500 cap. Collect your winnings!';
-    this.popupBalance.textContent  = `Balance: ${this.ccy(bal)}`;
-    this.popupBtn.textContent      = 'COLLECT MAX WIN';
+    this.popupSubtitle.textContent = t('popupMaxWinSubtitle');
+    this.popupBalance.textContent  = t('popupWinBalance', { balance: this.ccy(bal) });
+    this.popupBtn.textContent      = t('popupMaxWinBtn');
     this.popupBtn.className        = 'popup-btn success';
     this._showPopup();
   }
@@ -159,23 +160,23 @@ export class Ui {
     const bet = this.fmtBet(betInt);
     const bal = this.fmtBalance(balanceInt);
 
-    this.popupTitle.textContent    = 'BUSTED';
+    this.popupTitle.textContent    = t('popupLoseTitle');
     this.popupAmount.textContent   = `-${this.ccy(bet)}`;
     this.popupAmount.className     = 'lose';
     this.popupAmount.style.display = 'block';
-    this.popupSubtitle.textContent = 'An agent caught you. Be careful next time.';
-    this.popupBalance.textContent  = `Balance: ${this.ccy(bal)}`;
-    this.popupBtn.textContent      = balanceInt >= betInt ? 'TRY AGAIN' : 'REFILL & PLAY';
+    this.popupSubtitle.textContent = t('popupLoseSubtitle');
+    this.popupBalance.textContent  = t('popupLoseBalance', { balance: this.ccy(bal) });
+    this.popupBtn.textContent      = balanceInt >= betInt ? t('popupLoseBtnAfford') : t('popupLoseBtnBroke');
     this.popupBtn.className        = 'popup-btn danger';
     this._showPopup();
   }
 
   showPopupBroke(): void {
-    this.popupTitle.textContent    = 'BROKE!';
+    this.popupTitle.textContent    = t('popupBrokeTitle');
     this.popupAmount.style.display = 'none';
-    this.popupSubtitle.textContent = 'You ran out of credit. Refilling to starting balance.';
+    this.popupSubtitle.textContent = t('popupBrokeSubtitle');
     this.popupBalance.textContent  = '';
-    this.popupBtn.textContent      = 'REFILL & PLAY';
+    this.popupBtn.textContent      = t('popupBrokeBtn');
     this.popupBtn.className        = 'popup-btn primary';
     this._showPopup();
   }
@@ -233,7 +234,7 @@ export class Ui {
   showPopupFreebetsAwarded(count: number): void {
     this._showToast(
       'top',
-      `🎁  You've been awarded ${count} free play${count !== 1 ? 's' : ''}`,
+      t(count !== 1 ? 'fbAwardedPlural' : 'fbAwardedSingular', { count }),
       5000,
     );
   }
@@ -241,11 +242,7 @@ export class Ui {
   /** Small bottom snackbar — auto-closes after 2.5 s, tap to close. */
   showPopupFreebetsFinished(_count: number, totalWin: bigint): void {
     const winStr = this.ccy(this.fmtWin(totalWin));
-    this._showToast(
-      'bottom',
-      `FREE PLAYS OVER\nWon +${winStr}. Switching to balance.`,
-      2500,
-    );
+    this._showToast('bottom', t('fbFinishedToast', { win: winStr }), 2500);
   }
 
   /**
@@ -343,7 +340,7 @@ export class Ui {
         color:         'rgba(255,255,255,0.55)',
         fontWeight:    '600',
       });
-      label.textContent = '🎁 FREE PLAYS';
+      label.textContent = t('fbCounterLabel');
 
       const progress = document.createElement('span');
       Object.assign(progress.style, {
@@ -364,7 +361,7 @@ export class Ui {
         fontWeight:    '600',
         marginTop:     '3px',
       });
-      winLabel.textContent = 'TOTAL WIN';
+      winLabel.textContent = t('fbCounterTotalWin');
 
       const winValue = document.createElement('span');
       Object.assign(winValue.style, {
@@ -386,7 +383,7 @@ export class Ui {
 
     const progressEl = document.getElementById('fb-counter-progress');
     const winEl      = document.getElementById('fb-counter-win');
-    if (progressEl) progressEl.textContent = `${done} / ${issued}`;
+    if (progressEl) progressEl.textContent = t('fbCounterProgress', { done, issued });
     if (winEl)      winEl.textContent      = this.ccy(this.fmtWin(totalWin));
     this._fbCounterEl.style.display = 'flex';
   }
@@ -395,14 +392,16 @@ export class Ui {
     const win = this.fmtWin(totalWin);
     const bal = this.fmtBalance(balance);
 
-    this.popupTitle.textContent    = 'FREE PLAYS OVER';
+    this.popupTitle.textContent    = t('popupFbOverTitle');
     this.popupAmount.textContent   = `+${this.ccy(win)}`;
     this.popupAmount.className     = 'win';
     this.popupAmount.style.display = 'block';
-    this.popupSubtitle.textContent = 'Next swipes will be from your account funds.';
-    this.popupBalance.textContent  =
-      `Won +${this.ccy(win)} in ${rounds} round${rounds !== 1 ? 's' : ''} · Balance: ${this.ccy(bal)}`;
-    this.popupBtn.textContent      = 'COLLECT';
+    this.popupSubtitle.textContent = t('popupFbOverSubtitle');
+    this.popupBalance.textContent  = t(
+      rounds !== 1 ? 'popupFbOverBalancePlural' : 'popupFbOverBalanceSingular',
+      { win: this.ccy(win), rounds, balance: this.ccy(bal) },
+    );
+    this.popupBtn.textContent      = t('popupFbOverBtn');
     this.popupBtn.className        = 'popup-btn success';
     this._showPopup();
   }
@@ -496,7 +495,7 @@ export class Ui {
         color: '#fff', letterSpacing: '0.5px',
         textAlign: 'center', marginBottom: '8px',
       });
-      titleEl.textContent = 'INSUFFICIENT FUNDS';
+      titleEl.textContent = t('popupInsufficientTitle');
 
       // subtitle
       const subtitleEl = document.createElement('div');
@@ -504,7 +503,7 @@ export class Ui {
         fontSize: '14px', color: 'rgba(255,255,255,0.62)',
         textAlign: 'center', lineHeight: '1.55', marginBottom: '4px',
       });
-      subtitleEl.textContent = 'Your balance is too low for this bet.';
+      subtitleEl.textContent = t('popupInsufficientSubtitle');
 
       // balance + bet info
       const infoEl = document.createElement('div');
@@ -528,7 +527,7 @@ export class Ui {
         letterSpacing: '0.5px', cursor: 'pointer',
         marginBottom: '10px',
       });
-      depositBtn.textContent = 'TOP UP';
+      depositBtn.textContent = t('popupInsufficientDepositBtn');
 
       // CANCEL button
       const cancelBtn = document.createElement('button');
@@ -540,7 +539,7 @@ export class Ui {
         color: 'rgba(255,255,255,0.70)', fontSize: '14px',
         fontWeight: '700', letterSpacing: '0.5px', cursor: 'pointer',
       });
-      cancelBtn.textContent = 'CANCEL';
+      cancelBtn.textContent = t('popupInsufficientCancelBtn');
 
       sheet.appendChild(handle);
       sheet.appendChild(titleEl);
@@ -560,10 +559,10 @@ export class Ui {
 
     // Update dynamic text
     if (this._insuffBalanceEl) {
-      this._insuffBalanceEl.textContent = `Balance: ${this.ccy(this.fmtBalance(opts.balanceInt))}`;
+      this._insuffBalanceEl.textContent = t('popupInsufficientBalance', { balance: this.ccy(this.fmtBalance(opts.balanceInt)) });
     }
     if (this._insuffBetEl) {
-      this._insuffBetEl.textContent = `Bet: ${this.ccy(this.fmtBet(opts.betInt))}`;
+      this._insuffBetEl.textContent = t('popupInsufficientBet', { bet: this.ccy(this.fmtBet(opts.betInt)) });
     }
 
     // Wire callbacks via onclick — replaces on every call, no accumulation
@@ -643,7 +642,7 @@ export class Ui {
       textTransform: 'uppercase',
       color:         'rgba(255,255,255,0.90)',
     });
-    title.textContent = 'GAME RULES';
+    title.textContent = t('rulesTitle');
 
     const closeX = document.createElement('button');
     Object.assign(closeX.style, {
@@ -659,7 +658,7 @@ export class Ui {
       padding:      '0',
       flexShrink:   '0',
     });
-    closeX.textContent = '✕';
+    closeX.textContent = t('rulesCloseX');
     closeX.addEventListener('click', onClose);
 
     header.appendChild(title);
@@ -725,7 +724,7 @@ export class Ui {
       letterSpacing: '1.5px',
       cursor:        'pointer',
     });
-    closeBtn.textContent = 'CLOSE';
+    closeBtn.textContent = t('rulesCloseBtn');
     closeBtn.addEventListener('click', onClose);
 
     footer.appendChild(closeBtn);
@@ -785,8 +784,8 @@ export class Ui {
       return b;
     };
 
-    const backBtn  = mkBtn('◀ Back');
-    const nextBtn  = mkBtn('Next ▶');
+    const backBtn  = mkBtn(t('replayBack'));
+    const nextBtn  = mkBtn(t('replayNext'));
     const labelEl  = document.createElement('span');
     Object.assign(labelEl.style, {
       color:      '#d8b4fe',
@@ -816,7 +815,7 @@ export class Ui {
   updateReplayControls(currentIndex: number, total: number): void {
     if (!this._replayEl) return;
     if (this._replayLabel) {
-      this._replayLabel.textContent = `Step ${currentIndex + 1} / ${total}`;
+      this._replayLabel.textContent = t('replayStep', { current: currentIndex + 1, total });
     }
     if (this._replayBack) {
       this._replayBack.disabled = currentIndex === 0;

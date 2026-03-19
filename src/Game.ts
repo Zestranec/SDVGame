@@ -6,7 +6,7 @@ import { INTRO_CARD, BOMB_CARD, VIRAL_BOOST_CARD, SAFE_CARD_BASE, type CardDef }
 import { LoadingScene, LOADING_MIN_MS } from './LoadingScene';
 import { contentUrl, allSafeUrls } from './contentPool';
 import { gameOptions } from './GameOptions';
-import { RULES_EN } from './content/rulesText';
+import { t, setLocale, getRulesText } from './i18n/i18n';
 import { formatAmount } from './moneyFormat';
 import {
   RunnerClient,
@@ -90,9 +90,6 @@ class SwipeInput {
 export class Game {
   private state: GameState = 'loading';
 
-  /** Token from URL ?token=... */
-  private readonly token: string;
-
   /** Runner JSON-RPC client — single source of truth for session state. */
   private runner!: RunnerClient;
 
@@ -112,7 +109,6 @@ export class Game {
 
     if (roundId) {
       // ── Replay mode — no token needed ─────────────────────────────────────
-      this.token      = '';
       this.replayMode = true;
       this.economy    = new Economy(0n);
       this.renderer   = new Renderer(canvas);
@@ -127,8 +123,7 @@ export class Game {
     }
 
     if (!token) {
-      showFatalError('Missing token in URL (?token=…).\nRunner init cannot start.');
-      this.token    = '';
+      showFatalError(t('errorMissingToken'));
       this.economy  = new Economy(0n);
       this.renderer = new Renderer(canvas);
       this.ui       = new Ui();
@@ -136,7 +131,6 @@ export class Game {
       return;
     }
 
-    this.token    = token;
     this.runner   = new RunnerClient(token);
     this.economy  = new Economy(0n);   // overwritten after runner init
     this.renderer = new Renderer(canvas);
@@ -146,7 +140,7 @@ export class Game {
     this.ui.onPopupButton( () => this.handlePopupButton());
     this.ui.soundBtn.addEventListener('click', () => {
       this.muted = !this.muted;
-      this.ui.soundBtn.textContent = this.muted ? '🔇' : '🔊';
+      this.ui.soundBtn.textContent = this.muted ? t('soundMuted') : t('soundUnmuted');
     });
 
     (document.getElementById('btn-help') as HTMLElement)
@@ -279,11 +273,12 @@ export class Game {
       this.replaySteps = result.steps;
       this.replayIndex = 0;
       gameOptions.populateFromReplay(result);
+      await setLocale(gameOptions.locale);
       this.economy = new Economy(safeBI(result.balance));
       this.ui.setCurrencyConfig(gameOptions.currency, gameOptions.feDecimals);
     } catch (err) {
       scene.destroy();
-      showFatalError(`Replay load failed:\n${String(err)}`);
+      showFatalError(t('errorReplayFailed', { err: String(err) }));
       return;
     }
 
@@ -386,6 +381,7 @@ export class Game {
       ]);
 
       gameOptions.populateFromInit(initResult);
+      await setLocale(gameOptions.locale);
       this._lastSeenFreebetsIssued = gameOptions.freebets?.issued ?? 0;
       this.economy = new Economy(gameOptions.balance);
       this.ui.setCurrencyConfig(gameOptions.currency, gameOptions.feDecimals);
@@ -393,7 +389,7 @@ export class Game {
     } catch (err) {
       clearInterval(ticker);
       scene.destroy();
-      showFatalError(`Runner init failed:\n${String(err)}`);
+      showFatalError(t('errorRunnerInitFailed', { err: String(err) }));
       return;
     }
 
@@ -455,7 +451,7 @@ export class Game {
         this.ui.setBalance(this.economy.balance);
         this.ui.showBottomBar({
           roundValue: true, cashout: true, swipeHint: true,
-          hintText: 'Swipe up to continue',
+          hintText: t('hintSwipeContinue'),
         });
         if (this._currentBetType === 'freebet') {
           const fb = gameOptions.freebets;
@@ -555,7 +551,7 @@ export class Game {
           if (url) {
             window.open(url, '_blank', 'noopener,noreferrer');
           } else {
-            this.ui.showError('Deposit link not available.');
+            this.ui.showError(t('errorDepositLink'));
           }
         },
         onCancel: () => {
@@ -581,7 +577,7 @@ export class Game {
       res = await this.runner.play(req);
     } catch (err) {
       console.error('[Game] Runner error on start:', err);
-      this.ui.showError(`Connection error — ${String(err)}`);
+      this.ui.showError(t('errorConnection', { err: String(err) }));
       this.economy.onRoundStart(); // reset partial state
       this.setState('intro');
       return;
@@ -592,7 +588,7 @@ export class Game {
     this._applyFreebetsFromPlay(res.freebets);
 
     if (!res.resp) {
-      this.ui.showError('Invalid runner response (missing resp).');
+      this.ui.showError(t('errorInvalidResponse'));
       this.setState('intro');
       return;
     }
@@ -632,7 +628,7 @@ export class Game {
       res = await this.runner.play(req);
     } catch (err) {
       console.error('[Game] Runner error on swipe:', err);
-      this.ui.showError(`Connection error — ${String(err)}`);
+      this.ui.showError(t('errorConnection', { err: String(err) }));
       this.setState('running');
       return;
     }
@@ -641,7 +637,7 @@ export class Game {
     this._applyFreebetsFromPlay(res.freebets);
 
     if (!res.resp) {
-      this.ui.showError('Invalid runner response (missing resp).');
+      this.ui.showError(t('errorInvalidResponse'));
       this.setState('running');
       return;
     }
@@ -682,12 +678,12 @@ export class Game {
         res = await this.runner.play(req);
       } catch (err) {
         console.error('[Game] Runner error on cashout:', err);
-        this.ui.showError('Cashout failed — please retry');
+        this.ui.showError(t('errorCashoutFailed'));
         return;
       }
 
       if (!res.resp) {
-        this.ui.showError('Invalid runner response on cashout.');
+        this.ui.showError(t('errorInvalidCashout'));
         return;
       }
 
@@ -782,7 +778,7 @@ export class Game {
     if (this._rulesOpen) return;
     this._rulesOpen = true;
     this.swipe.setLocked(true);
-    this.ui.showRules(RULES_EN, () => this._closeRules());
+    this.ui.showRules(getRulesText(), () => this._closeRules());
   }
 
   private _closeRules(): void {

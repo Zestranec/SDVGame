@@ -3,6 +3,7 @@ import * as PIXI from 'pixi.js';
 import type { CardDef, CardAnimType } from './Card';
 import { VideoCanvasTexture } from './VideoCanvasTexture';
 import { VideoCache } from './VideoCache';
+import { t as tr, getLocale } from './i18n/i18n';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -242,7 +243,7 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
 
   // 3. Game title ("ADHDoom") — top-center, sits below the HTML HUD ─────────────
   const gameTitleFS = Math.round(Math.min(w * 0.10, 44));
-  const gameTitle = new PIXI.Text('ADHDoom', new PIXI.TextStyle({
+  const gameTitle = new PIXI.Text(tr('introTitle'), new PIXI.TextStyle({
     fontFamily:         TEXT_FONT,
     fontWeight:         '900',
     fontSize:           gameTitleFS,
@@ -315,7 +316,7 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
 
   // "Win Up To ×500" — punchy gold highlight above the caption panel
   const winHighlightFS = Math.round(Math.min(w * 0.072, 28));
-  const winHighlight = new PIXI.Text('Win Up To ×500', new PIXI.TextStyle({
+  const winHighlight = new PIXI.Text(tr('introWinHighlight'), new PIXI.TextStyle({
     fontFamily:         TEXT_FONT,
     fontWeight:         '900',
     fontSize:           winHighlightFS,
@@ -336,7 +337,7 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
   const ctaLayer = new PIXI.Container();
   container.addChild(ctaLayer);
 
-  const ctaLabel = new PIXI.Text('SWIPE UP TO START', new PIXI.TextStyle({
+  const ctaLabel = new PIXI.Text(tr('introCta'), new PIXI.TextStyle({
     fontFamily:         TEXT_FONT,
     fontWeight:         '700',
     fontSize:           Math.round(Math.min(w * 0.038, 14)),
@@ -399,7 +400,7 @@ function buildIntroCard(w: number, h: number, def: CardDef, betOpts?: BetSelecto
     betCont.addChild(betLabel);
 
     const refreshLabel = () => {
-      betLabel.text = `BET  ${betOpts.formatBet(betOpts.bets[currentIndex])}`;
+      betLabel.text = tr('introBetLabel', { amount: betOpts.formatBet(betOpts.bets[currentIndex]) });
     };
     refreshLabel();
 
@@ -542,7 +543,7 @@ function buildVideoCard(w: number, h: number, def: CardDef, primedVcTex?: VideoC
     if (container.destroyed || tapShown) return;
     tapShown = true;
     if (import.meta.env.DEV) console.warn('[VideoCard] autoplay blocked — showing tap overlay');
-    const tap = new PIXI.Text('▶  Tap to play', new PIXI.TextStyle({
+    const tap = new PIXI.Text(tr('tapToPlay'), new PIXI.TextStyle({
       fontFamily: TEXT_FONT, fontSize: 18, fontWeight: '700',
       fill: 0xffffff, dropShadow: true, dropShadowBlur: 10,
       dropShadowColor: 0x000000, dropShadowDistance: 0,
@@ -671,7 +672,7 @@ function setupAnim(type: CardAnimType, objs: CardObjects, w: number, h: number):
 
     // ── 3. Stamp (Cat CEO) ───────────────────────────────────────────────────
     case 'stamp': {
-      const stamp = new PIXI.Text('APPROVED', new PIXI.TextStyle({
+      const stamp = new PIXI.Text(tr('stampApproved'), new PIXI.TextStyle({
         fontFamily: TEXT_FONT, fontWeight: '900', fontSize: 32,
         fill: 0x22cc55, stroke: 0x005522, strokeThickness: 3,
       }));
@@ -847,7 +848,7 @@ function setupAnim(type: CardAnimType, objs: CardObjects, w: number, h: number):
 
     // ── 9. Speech bubbles (Dog Translator) ───────────────────────────────────
     case 'speech': {
-      const msgs = ["snack?", "snack!", "walk?", "treat?", "ball?"];
+      const msgs = [...getLocale().dogMessages];
       type Bubble = { c: PIXI.Container; life: number; vy: number };
       const bubbles: Bubble[] = [];
       let spawnT = 0;
